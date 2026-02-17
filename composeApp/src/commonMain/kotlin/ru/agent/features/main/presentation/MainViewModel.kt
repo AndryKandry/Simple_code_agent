@@ -37,6 +37,7 @@ class MainViewModel internal constructor(
         when(viewEvent) {
             MainEvent.ExampleEvent -> handleExampleEvent()
             MainEvent.ChatClicked -> chatClicked()
+            MainEvent.ComparisonClicked -> comparisonClicked()
 //            MainEvent.PersonagesClicked -> personagesClicked()
 //            MainEvent.GamerBookClicked -> gamerBookClicked()
         }
@@ -48,6 +49,10 @@ class MainViewModel internal constructor(
 
     private fun chatClicked() {
         viewAction = MainAction.OpenChatScreen
+    }
+
+    private fun comparisonClicked() {
+        viewAction = MainAction.OpenComparisonScreen
     }
 
 //    private fun personagesClicked() {

@@ -62,6 +62,10 @@ fun MainScreen(
             externalNavHost.navigate(AppScreens.Chat.title)
             viewModel.clearAction()
         }
+        is MainAction.OpenComparisonScreen -> {
+            externalNavHost.navigate(AppScreens.ApiComparison.title)
+            viewModel.clearAction()
+        }
         null -> {}
     }
 }
@@ -142,6 +146,30 @@ private fun MainContent(
             ) {
                 Text(
                     text = "Open Chat",
+                    color = ChatColors.TextColor,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            // API Comparison button
+            TextButton(
+                onClick = { eventHandler(MainEvent.ComparisonClicked) },
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                ChatColors.AssistantMessageStartColor,
+                                ChatColors.AssistantMessageEndColor
+                            )
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+            ) {
+                Text(
+                    text = "API Comparison",
                     color = ChatColors.TextColor,
                     fontWeight = FontWeight.Medium,
                     fontSize = 16.sp,

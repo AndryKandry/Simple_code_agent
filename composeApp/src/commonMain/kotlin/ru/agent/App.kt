@@ -10,6 +10,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import ru.agent.features.chat.presentation.ChatScreen
+import ru.agent.features.comparison.presentation.ApiComparisonScreen
 import ru.agent.features.main.presentation.MainScreen
 import ru.agent.navigation.AppScreens
 import ru.agent.navigation.LocalNavHost
@@ -40,6 +41,9 @@ internal fun DefaultApp(
             }
             composable(route = AppScreens.Chat.title) {
                 ChatScreen()
+            }
+            composable(route = AppScreens.ApiComparison.title) {
+                ApiComparisonScreen()
             }
         }
     }
