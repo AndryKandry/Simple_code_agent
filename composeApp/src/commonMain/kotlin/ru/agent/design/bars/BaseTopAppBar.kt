@@ -32,6 +32,7 @@ fun BaseTopAppBar(
     title: String,
     containerAlpha: Float = 1f,
     containerColor: Color,
+    titleColor: Color = DefaultTheme.colors.primaryText,
     navigationIcon: @Composable () -> Unit,
     actions: @Composable RowScope.() -> Unit,
     scrollBehavior: TopAppBarScrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -65,7 +66,7 @@ fun BaseTopAppBar(
                     ),
                 text = title,
                 style = DefaultTheme.typography.Title3,
-                color = DefaultTheme.colors.primaryText,
+                color = titleColor,
                 textAlign = TextAlign.Center
             )
         }

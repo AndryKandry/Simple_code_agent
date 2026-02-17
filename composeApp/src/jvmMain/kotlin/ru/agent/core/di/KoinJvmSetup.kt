@@ -15,3 +15,16 @@ val desktopDatabaseModule = module {
 }
 
 actual val platformModule: Module = desktopDatabaseModule
+
+actual fun getDeepSeekApiKey(): String {
+    // In production, this should read from environment variable or config file
+    val apiKey = System.getenv("DEEPSEEK_API_KEY")
+    if (apiKey.isNullOrBlank()) {
+        throw IllegalStateException(
+            "DeepSeek API key is not configured. " +
+            "Please set the DEEPSEEK_API_KEY environment variable with your API key. " +
+            "Get your API key at: https://platform.deepseek.com/api_keys"
+        )
+    }
+    return apiKey
+}

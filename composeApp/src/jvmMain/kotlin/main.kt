@@ -4,6 +4,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import java.awt.Dimension
 import ru.agent.App
+import ru.agent.core.di.ApplicationCloser
 import ru.agent.core.di.initKoin
 
 fun main() {
@@ -11,7 +12,10 @@ fun main() {
         Window(
             title = "Default KMP",
             state = rememberWindowState(width = 600.dp, height = 600.dp),
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = {
+                ApplicationCloser.closeAll()
+                exitApplication()
+            },
         ) {
             window.minimumSize = Dimension(350, 600)
 

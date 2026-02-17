@@ -19,3 +19,12 @@ val androidDatabaseModule = module {
 }
 
 actual val platformModule: Module = androidDatabaseModule
+
+actual fun getDeepSeekApiKey(): String {
+    // In production, read from BuildConfig or SharedPreferences
+    throw IllegalStateException(
+        "DeepSeek API key is not configured for Android. " +
+        "Please implement API key retrieval from BuildConfig or SharedPreferences. " +
+        "Get your API key at: https://platform.deepseek.com/api_keys"
+    )
+}

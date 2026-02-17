@@ -1,16 +1,19 @@
 package ru.agent.features.main.presentation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -18,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,12 +33,13 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.koin.compose.viewmodel.koinViewModel
 import ru.agent.design.bars.BaseTopAppBar
 import ru.agent.design.extensions.backgroundGradient
+import ru.agent.features.chat.presentation.theme.ChatColors
 import ru.agent.features.main.presentation.models.MainAction
 import ru.agent.features.main.presentation.models.MainEvent
 import ru.agent.features.main.presentation.models.MainViewState
+import ru.agent.navigation.AppScreens
 import ru.agent.navigation.LocalNavHost
 import ru.agent.theme.AppTheme
-import ru.agent.theme.DefaultTheme
 
 @Composable
 fun MainScreen(
@@ -51,6 +56,10 @@ fun MainScreen(
     when(viewAction) {
         is MainAction.ExampleAction -> {
             // Something to do. Example: externalNavHost.navigate(AppScreens.Somescreen.title)
+            viewModel.clearAction()
+        }
+        is MainAction.OpenChatScreen -> {
+            externalNavHost.navigate(AppScreens.Chat.title)
             viewModel.clearAction()
         }
         null -> {}
@@ -78,7 +87,8 @@ private fun MainContent(
                         )
                     },
                 title = stringResource(Res.string.main_title),
-                containerColor = DefaultTheme.colors.primaryBackground,
+                containerColor = ChatColors.BackgroundStartColor,
+                titleColor = ChatColors.TextColor,
                 navigationIcon = {},
                 actions = {}
             )
@@ -89,23 +99,55 @@ private fun MainContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .backgroundGradient()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            ChatColors.BackgroundStartColor,
+                            ChatColors.BackgroundEndColor
+                        )
+                    )
+                )
+                .padding(paddingValues)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "Default KMP Project",
-                fontSize = 24.sp,
+                text = "AI Agent",
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = ChatColors.TextColor
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Kotlin Multiplatform template",
+                text = "Your intelligent assistant powered by AI",
                 fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.onBackground
+                color = ChatColors.TimestampColor
             )
+            Spacer(modifier = Modifier.height(32.dp))
+            // Gradient button styled like user messages
+            TextButton(
+                onClick = { eventHandler(MainEvent.ChatClicked) },
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                ChatColors.UserMessageStartColor,
+                                ChatColors.UserMessageEndColor
+                            )
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+            ) {
+                Text(
+                    text = "Open Chat",
+                    color = ChatColors.TextColor,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
         }
     }
 }

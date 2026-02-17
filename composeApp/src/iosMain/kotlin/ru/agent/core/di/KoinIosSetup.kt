@@ -15,3 +15,12 @@ val iosDatabaseModule = module {
 }
 
 actual val platformModule: Module = iosDatabaseModule
+
+actual fun getDeepSeekApiKey(): String {
+    // In production, read from UserDefaults or config
+    throw IllegalStateException(
+        "DeepSeek API key is not configured for iOS. " +
+        "Please implement API key retrieval from UserDefaults or config. " +
+        "Get your API key at: https://platform.deepseek.com/api_keys"
+    )
+}
