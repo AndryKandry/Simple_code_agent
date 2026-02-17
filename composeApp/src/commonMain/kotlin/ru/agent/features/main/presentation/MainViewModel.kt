@@ -36,6 +36,7 @@ class MainViewModel internal constructor(
     override fun obtainEvent(viewEvent: MainEvent) {
         when(viewEvent) {
             MainEvent.ExampleEvent -> handleExampleEvent()
+            MainEvent.ChatClicked -> chatClicked()
 //            MainEvent.PersonagesClicked -> personagesClicked()
 //            MainEvent.GamerBookClicked -> gamerBookClicked()
         }
@@ -43,6 +44,10 @@ class MainViewModel internal constructor(
 
     private fun handleExampleEvent() {
         // Something to do
+    }
+
+    private fun chatClicked() {
+        viewAction = MainAction.OpenChatScreen
     }
 
 //    private fun personagesClicked() {
