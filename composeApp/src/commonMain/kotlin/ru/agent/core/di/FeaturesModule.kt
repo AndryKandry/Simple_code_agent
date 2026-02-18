@@ -4,6 +4,7 @@ import org.koin.dsl.module
 import ru.agent.features.chat.di.featureChatModule
 import ru.agent.features.comparison.di.featureComparisonModule
 import ru.agent.features.main.di.featureMainModule
+import ru.agent.features.reasoning.di.featureReasoningModule
 
 val featuresModule = module {
     includes(
@@ -17,5 +18,8 @@ val featuresModule = module {
 
         // API Comparison
         featureComparisonModule,
+
+        // Reasoning Comparison
+        featureReasoningModule,
     )
 }

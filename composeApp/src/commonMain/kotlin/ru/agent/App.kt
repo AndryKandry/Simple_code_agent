@@ -12,6 +12,7 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 import ru.agent.features.chat.presentation.ChatScreen
 import ru.agent.features.comparison.presentation.ApiComparisonScreen
 import ru.agent.features.main.presentation.MainScreen
+import ru.agent.features.reasoning.presentation.ReasoningScreen
 import ru.agent.navigation.AppScreens
 import ru.agent.navigation.LocalNavHost
 import ru.agent.theme.AppTheme
@@ -44,6 +45,9 @@ internal fun DefaultApp(
             }
             composable(route = AppScreens.ApiComparison.title) {
                 ApiComparisonScreen()
+            }
+            composable(route = AppScreens.ReasoningComparison.title) {
+                ReasoningScreen()
             }
         }
     }

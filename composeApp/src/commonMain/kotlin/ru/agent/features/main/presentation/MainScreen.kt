@@ -66,6 +66,10 @@ fun MainScreen(
             externalNavHost.navigate(AppScreens.ApiComparison.title)
             viewModel.clearAction()
         }
+        is MainAction.OpenReasoningScreen -> {
+            externalNavHost.navigate(AppScreens.ReasoningComparison.title)
+            viewModel.clearAction()
+        }
         null -> {}
     }
 }
@@ -170,6 +174,30 @@ private fun MainContent(
             ) {
                 Text(
                     text = "API Comparison",
+                    color = ChatColors.TextColor,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            // Reasoning Comparison button
+            TextButton(
+                onClick = { eventHandler(MainEvent.ReasoningClicked) },
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFF9C27B0),
+                                Color(0xFFFF9800)
+                            )
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+            ) {
+                Text(
+                    text = "Reasoning Comparison",
                     color = ChatColors.TextColor,
                     fontWeight = FontWeight.Medium,
                     fontSize = 16.sp,
