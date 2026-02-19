@@ -5,6 +5,7 @@ sealed interface MainAction {
     data object OpenChatScreen : MainAction
     data object OpenComparisonScreen : MainAction
     data object OpenReasoningScreen : MainAction
+    data object OpenTemperatureScreen : MainAction
 //    data object OpenPersonagesScreen : MainAction
 //    data object OpenGamerBookScreen : MainAction
 }

@@ -5,6 +5,7 @@ sealed interface MainEvent {
     data object ChatClicked : MainEvent
     data object ComparisonClicked : MainEvent
     data object ReasoningClicked : MainEvent
+    data object TemperatureClicked : MainEvent
 //    data object PersonagesClicked : MainEvent
 //    data object GamerBookClicked : MainEvent
 }

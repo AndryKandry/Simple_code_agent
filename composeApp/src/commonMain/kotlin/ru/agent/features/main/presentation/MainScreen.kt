@@ -70,6 +70,10 @@ fun MainScreen(
             externalNavHost.navigate(AppScreens.ReasoningComparison.title)
             viewModel.clearAction()
         }
+        is MainAction.OpenTemperatureScreen -> {
+            externalNavHost.navigate(AppScreens.TemperatureComparison.title)
+            viewModel.clearAction()
+        }
         null -> {}
     }
 }
@@ -198,6 +202,30 @@ private fun MainContent(
             ) {
                 Text(
                     text = "Reasoning Comparison",
+                    color = ChatColors.TextColor,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            // Temperature Comparison button
+            TextButton(
+                onClick = { eventHandler(MainEvent.TemperatureClicked) },
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFF4CAF50),
+                                Color(0xFF2196F3)
+                            )
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+            ) {
+                Text(
+                    text = "Temperature Comparison",
                     color = ChatColors.TextColor,
                     fontWeight = FontWeight.Medium,
                     fontSize = 16.sp,

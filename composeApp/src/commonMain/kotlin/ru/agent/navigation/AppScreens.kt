@@ -5,4 +5,5 @@ enum class AppScreens(val title: String) {
     Chat("chat"),
     ApiComparison("api_comparison"),
     ReasoningComparison("reasoning_comparison"),
+    TemperatureComparison("temperature_comparison"),
 }

@@ -39,6 +39,7 @@ class MainViewModel internal constructor(
             MainEvent.ChatClicked -> chatClicked()
             MainEvent.ComparisonClicked -> comparisonClicked()
             MainEvent.ReasoningClicked -> reasoningClicked()
+            MainEvent.TemperatureClicked -> temperatureClicked()
 //            MainEvent.PersonagesClicked -> personagesClicked()
 //            MainEvent.GamerBookClicked -> gamerBookClicked()
         }
@@ -58,6 +59,10 @@ class MainViewModel internal constructor(
 
     private fun reasoningClicked() {
         viewAction = MainAction.OpenReasoningScreen
+    }
+
+    private fun temperatureClicked() {
+        viewAction = MainAction.OpenTemperatureScreen
     }
 
 //    private fun personagesClicked() {

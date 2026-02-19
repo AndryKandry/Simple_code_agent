@@ -13,6 +13,7 @@ import ru.agent.features.chat.presentation.ChatScreen
 import ru.agent.features.comparison.presentation.ApiComparisonScreen
 import ru.agent.features.main.presentation.MainScreen
 import ru.agent.features.reasoning.presentation.ReasoningScreen
+import ru.agent.features.temperature.presentation.TemperatureComparisonScreen
 import ru.agent.navigation.AppScreens
 import ru.agent.navigation.LocalNavHost
 import ru.agent.theme.AppTheme
@@ -48,6 +49,9 @@ internal fun DefaultApp(
             }
             composable(route = AppScreens.ReasoningComparison.title) {
                 ReasoningScreen()
+            }
+            composable(route = AppScreens.TemperatureComparison.title) {
+                TemperatureComparisonScreen()
             }
         }
     }
