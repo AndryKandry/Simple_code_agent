@@ -1,6 +1,7 @@
 package ru.agent.core.di
 
 import org.koin.core.module.Module
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import ru.agent.core.database.AppDatabase
 import ru.agent.core.database.getDatabaseBuilder
@@ -11,6 +12,13 @@ val desktopDatabaseModule = module {
         getRoomDatabase(
             getDatabaseBuilder()
         )
+    }
+
+    // HuggingFace API Key for Model Comparison feature
+    single(qualifier = named("huggingface_api_key")) {
+        System.getenv("HUGGINGFACE_API_KEY")
+            ?: System.getenv("HF_TOKEN")
+            ?: "" // Empty string - will show error in UI if not configured
     }
 }
 

@@ -12,6 +12,7 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 import ru.agent.features.chat.presentation.ChatScreen
 import ru.agent.features.comparison.presentation.ApiComparisonScreen
 import ru.agent.features.main.presentation.MainScreen
+import ru.agent.features.modelcomparison.presentation.ModelComparisonScreen
 import ru.agent.features.reasoning.presentation.ReasoningScreen
 import ru.agent.features.temperature.presentation.TemperatureComparisonScreen
 import ru.agent.navigation.AppScreens
@@ -52,6 +53,9 @@ internal fun DefaultApp(
             }
             composable(route = AppScreens.TemperatureComparison.title) {
                 TemperatureComparisonScreen()
+            }
+            composable(route = AppScreens.ModelComparison.title) {
+                ModelComparisonScreen()
             }
         }
     }

@@ -6,4 +6,5 @@ enum class AppScreens(val title: String) {
     ApiComparison("api_comparison"),
     ReasoningComparison("reasoning_comparison"),
     TemperatureComparison("temperature_comparison"),
+    ModelComparison("model_comparison"),
 }
