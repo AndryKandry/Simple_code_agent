@@ -1,0 +1,9 @@
+/.gradle/
+/.idea/
+/build/
+/.kotlin/
+/composeApp/build/
+/local.properties
+/iosApp/iosApp.xcodeproj/project.xcworkspace/xcuserdata/andreykozyrev.xcuserdatad/xcschemes/xcschememanagement.plist
+/iosApp/iosApp.xcodeproj/xcuserdata/andreykozyrev.xcuserdatad/xcschemes/xcschememanagement.plist
+/iosApp/iosApp.xcodeproj/xcuserdata/andreykozyrev.xcuserdatad/xcschemes/iosApp.xcscheme

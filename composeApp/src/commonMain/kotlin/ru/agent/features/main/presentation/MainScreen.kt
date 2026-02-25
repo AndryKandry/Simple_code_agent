@@ -59,7 +59,8 @@ fun MainScreen(
             viewModel.clearAction()
         }
         is MainAction.OpenChatScreen -> {
-            externalNavHost.navigate(AppScreens.Chat.title)
+            // Navigate with null sessionId to create new or load last session
+            externalNavHost.navigate(AppScreens.chatWithSession(""))
             viewModel.clearAction()
         }
         null -> {}

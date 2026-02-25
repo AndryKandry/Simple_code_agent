@@ -11,13 +11,13 @@ fun main() {
     application {
         Window(
             title = "Default KMP",
-            state = rememberWindowState(width = 600.dp, height = 600.dp),
+            state = rememberWindowState(width = 1000.dp, height = 500.dp),
             onCloseRequest = {
                 ApplicationCloser.closeAll()
                 exitApplication()
             },
         ) {
-            window.minimumSize = Dimension(350, 600)
+            window.minimumSize = Dimension(600, 800)
 
             initKoin()
 

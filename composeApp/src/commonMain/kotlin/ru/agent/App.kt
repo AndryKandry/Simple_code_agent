@@ -4,10 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import ru.agent.features.chat.presentation.ChatScreen
 import ru.agent.features.main.presentation.MainScreen
@@ -38,8 +40,19 @@ internal fun DefaultApp(
             composable(route = AppScreens.Main.title) {
                 MainScreen()
             }
-            composable(route = AppScreens.Chat.title) {
-                ChatScreen()
+            composable(
+                route = AppScreens.Chat.title,
+                arguments = listOf(
+                    navArgument("sessionId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = ""
+                    }
+                )
+            ) { backStackEntry ->
+                val sessionId: String? = backStackEntry.savedStateHandle["sessionId"]
+                val validSessionId = sessionId?.takeIf { it.isNotEmpty() }
+                ChatScreen(sessionId = validSessionId)
             }
         }
     }

@@ -7,7 +7,22 @@ import ru.agent.features.chat.domain.repository.ChatRepository
 class SendMessageUseCase(
     private val chatRepository: ChatRepository
 ) {
-    suspend operator fun invoke(message: String): ResultWrapper<Message> {
+    /**
+     * Send a message in the specified chat session.
+     *
+     * @param sessionId ID of the chat session
+     * @param message Message content to send
+     * @return ResultWrapper containing the response Message or an error
+     */
+    suspend operator fun invoke(sessionId: String, message: String): ResultWrapper<Message> {
+        // Validate sessionId
+        if (sessionId.isBlank()) {
+            return ResultWrapper.Error(
+                throwable = IllegalArgumentException("Session ID cannot be blank"),
+                message = "Session ID is required"
+            )
+        }
+
         // Validate input
         if (message.isBlank()) {
             return ResultWrapper.Error(
@@ -16,6 +31,6 @@ class SendMessageUseCase(
             )
         }
 
-        return chatRepository.sendMessage(message)
+        return chatRepository.sendMessage(sessionId.trim(), message.trim())
     }
 }

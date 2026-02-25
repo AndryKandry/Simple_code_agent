@@ -5,7 +5,14 @@ import ru.agent.features.chat.domain.repository.ChatRepository
 class ClearChatHistoryUseCase(
     private val chatRepository: ChatRepository
 ) {
-    suspend operator fun invoke() {
-        chatRepository.clearHistory()
+    /**
+     * Clear chat history for a specific session.
+     *
+     * @param sessionId ID of the chat session to clear
+     */
+    suspend operator fun invoke(sessionId: String) {
+        if (sessionId.isNotBlank()) {
+            chatRepository.clearHistory(sessionId)
+        }
     }
 }

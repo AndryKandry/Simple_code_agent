@@ -3,13 +3,20 @@ package ru.agent.features.chat.presentation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -27,7 +34,10 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import org.koin.compose.viewmodel.koinViewModel
 import ru.agent.design.bars.BaseTopAppBar
+import ru.agent.features.chat.domain.model.ChatSession
+import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.chat.presentation.components.ChatInputField
+import ru.agent.features.chat.presentation.components.ChatSidebar
 import ru.agent.features.chat.presentation.components.LoadingIndicator
 import ru.agent.features.chat.presentation.components.MessageList
 import ru.agent.features.chat.presentation.models.ChatAction
@@ -37,12 +47,18 @@ import ru.agent.features.chat.presentation.theme.ChatColors
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
+    sessionId: String? = null,
     viewModel: ChatViewModel = koinViewModel()
 ) {
     val viewState by viewModel.viewStates().collectAsState()
     val viewAction by viewModel.viewActions().collectAsState(null)
     val snackbarHostState = remember { SnackbarHostState() }
     val focusRequester = remember { FocusRequester() }
+
+    // Initialize ViewModel with session
+    LaunchedEffect(sessionId) {
+        viewModel.initializeWithSession(sessionId)
+    }
 
     // Handle actions
     LaunchedEffect(viewAction) {
@@ -55,14 +71,26 @@ fun ChatScreen(
                 // Scroll is handled in MessageList
                 viewModel.clearAction()
             }
+            is ChatAction.NavigateToSession -> {
+                // Navigation is handled externally if needed
+                viewModel.clearAction()
+            }
+            is ChatAction.ShowDeleteConfirmation -> {
+                // Delete confirmation handled externally if needed
+                viewModel.clearAction()
+            }
             null -> {}
         }
     }
 
     ChatContent(
         messages = viewState.messages,
+        currentSession = viewState.currentSession,
         isLoading = viewState.isLoading,
         inputText = viewState.inputText,
+        isSidebarOpen = viewState.isSidebarOpen,
+        sessions = viewState.sessions,
+        currentSessionId = viewState.currentSessionId,
         snackbarHostState = snackbarHostState,
         onEvent = { event -> viewModel.obtainEvent(event) },
         modifier = Modifier
@@ -90,14 +118,18 @@ fun ChatScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatContent(
-    messages: List<ru.agent.features.chat.domain.model.Message>,
+    messages: List<Message>,
+    currentSession: ChatSession?,
     isLoading: Boolean,
     inputText: String,
+    isSidebarOpen: Boolean,
+    sessions: List<ChatSession>,
+    currentSessionId: String?,
     snackbarHostState: SnackbarHostState,
     onEvent: (ChatEvent) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    Row(
         modifier = modifier
             .fillMaxSize()
             .background(
@@ -106,47 +138,73 @@ private fun ChatContent(
                 )
             )
     ) {
-        Scaffold(
-            topBar = {
-                Column {
-                    BaseTopAppBar(
-                        title = "DeepSeek Chat",
-                        containerColor = Color.Transparent,
-                        titleColor = Color.White,
-                        navigationIcon = {},
-                        actions = {}
-                    )
-                    LoadingIndicator(isLoading = isLoading)
-                }
-            },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            containerColor = Color.Transparent,
-            modifier = Modifier.fillMaxSize()
-        ) { paddingValues ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-            ) {
-                MessageList(
-                    messages = messages,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                )
+        // Sidebar
+        ChatSidebar(
+            sessions = sessions,
+            currentSessionId = currentSessionId,
+            isOpen = isSidebarOpen,
+            onEvent = onEvent,
+            modifier = Modifier.fillMaxHeight()
+        )
 
-                ChatInputField(
-                    text = inputText,
-                    onTextChanged = { text ->
-                        onEvent(ChatEvent.InputTextChanged(text))
-                    },
-                    onSendClicked = {
-                        if (inputText.isNotBlank()) {
-                            onEvent(ChatEvent.SendMessage(inputText))
-                        }
-                    },
-                    isEnabled = !isLoading
-                )
+        // Main chat area
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        ) {
+            Scaffold(
+                topBar = {
+                    Column {
+                        BaseTopAppBar(
+                            title = currentSession?.title ?: "DeepSeek Chat",
+                            containerColor = Color.Transparent,
+                            titleColor = Color.White,
+                            navigationIcon = {
+                                IconButton(
+                                    onClick = { onEvent(ChatEvent.ToggleSidebar) }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Menu,
+                                        contentDescription = "Toggle sidebar",
+                                        tint = Color.White
+                                    )
+                                }
+                            },
+                            actions = {}
+                        )
+                        LoadingIndicator(isLoading = isLoading)
+                    }
+                },
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                containerColor = Color.Transparent,
+                modifier = Modifier.fillMaxSize()
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                ) {
+                    MessageList(
+                        messages = messages,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    )
+
+                    ChatInputField(
+                        text = inputText,
+                        onTextChanged = { text ->
+                            onEvent(ChatEvent.InputTextChanged(text))
+                        },
+                        onSendClicked = {
+                            if (inputText.isNotBlank()) {
+                                onEvent(ChatEvent.SendMessage(inputText))
+                            }
+                        },
+                        isEnabled = !isLoading
+                    )
+                }
             }
         }
     }
