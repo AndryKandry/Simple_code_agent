@@ -18,6 +18,7 @@ data class ChatViewState(
     val tokenStats: TokenStats = TokenStats.Empty,
     val showTokenWarning: Boolean = false,
     val tokenWarningMessage: String? = null,
+    val showTokenHints: Boolean = false,  // Show hints panel
     // Batch message navigation state (for split long messages)
     val expandedBatches: Set<String> = emptySet(),      // Раскрытые batch (показывать весь текст)
     val currentBatchPart: Map<String, Int> = emptyMap() // Текущая часть для каждого batch

@@ -1,9 +1,13 @@
 package ru.agent.features.chat.presentation.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,10 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -28,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.agent.features.chat.domain.model.ModelLimits
@@ -52,12 +60,15 @@ private val SecondaryTextColor = Color.White.copy(alpha = 0.7f)
  * - Total tokens used
  * - Progress bar with color-coded usage level
  * - Warning message if approaching context limit
+ * - Hints about token usage scenarios
  *
  * @param tokenStats Token statistics to display
  * @param maxTokens Maximum context tokens
  * @param showWarning Whether to show warning banner
  * @param warningMessage Warning message to display
  * @param onDismissWarning Callback when warning is dismissed
+ * @param showHints Whether to show hints panel
+ * @param onToggleHints Callback when hints panel is toggled
  * @param normalColor Color for normal usage level
  * @param warningColor Color for warning usage level
  * @param criticalColor Color for critical usage level
@@ -70,6 +81,8 @@ fun TokenStatsPanel(
     showWarning: Boolean = false,
     warningMessage: String? = null,
     onDismissWarning: () -> Unit = {},
+    showHints: Boolean = false,
+    onToggleHints: () -> Unit = {},
     normalColor: Color = NormalColor,
     warningColor: Color = WarningColor,
     criticalColor: Color = CriticalColor,
@@ -141,6 +154,43 @@ fun TokenStatsPanel(
                 onDismiss = onDismissWarning,
                 warningColor = warningColor,
                 criticalColor = criticalColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            )
+        }
+
+        // Hints toggle button
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .clickable { onToggleHints() }
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "How tokens work",
+                color = SecondaryTextColor,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Icon(
+                imageVector = if (showHints) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = if (showHints) "Hide hints" else "Show hints",
+                tint = SecondaryTextColor,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+
+        // Hints panel
+        AnimatedVisibility(
+            visible = showHints,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            TokenUsageHints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
@@ -262,5 +312,117 @@ fun MessageTokenBadge(
             fontSize = 10.sp,
             modifier = modifier
         )
+    }
+}
+
+/**
+ * Panel with hints about token usage scenarios.
+ */
+@Composable
+private fun TokenUsageHints(
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .background(CardBackgroundColor, RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "Token Usage Scenarios",
+            color = TextColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        // Scenario 1: Short dialog
+        HintItem(
+            iconColor = NormalColor,
+            title = "Short Dialog",
+            description = "A few messages with quick questions and answers. Uses <5% of context (green indicator).",
+            example = "~1,000 tokens"
+        )
+
+        // Scenario 2: Long dialog
+        HintItem(
+            iconColor = WarningColor,
+            title = "Long Dialog",
+            description = "Extended conversation with detailed responses. Uses 80-94% of context (yellow indicator).",
+            example = "~50,000 tokens"
+        )
+
+        // Scenario 3: Overflow
+        HintItem(
+            iconColor = CriticalColor,
+            title = "Context Overflow",
+            description = "Conversation exceeds model limit. API returns error, last messages may be lost.",
+            example = ">64,000 tokens",
+            isWarning = true
+        )
+
+        Text(
+            text = "Tip: Create a new chat session to reset the token counter.",
+            color = SecondaryTextColor,
+            fontSize = 11.sp,
+            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun HintItem(
+    iconColor: Color,
+    title: String,
+    description: String,
+    example: String,
+    isWarning: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Color indicator
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .height(40.dp)
+                .background(iconColor, RoundedCornerShape(2.dp))
+        )
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = title,
+                    color = TextColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "($example)",
+                    color = SecondaryTextColor,
+                    fontSize = 10.sp
+                )
+                if (isWarning) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "Warning",
+                        tint = CriticalColor,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
+            Text(
+                text = description,
+                color = SecondaryTextColor,
+                fontSize = 11.sp,
+                lineHeight = 14.sp
+            )
+        }
     }
 }

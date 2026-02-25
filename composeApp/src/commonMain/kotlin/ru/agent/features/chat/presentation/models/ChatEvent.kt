@@ -13,6 +13,7 @@ sealed class ChatEvent {
     // Token-related events
     object DismissTokenWarning : ChatEvent()
     object RecalculateTokens : ChatEvent()
+    object ToggleTokenHints : ChatEvent()
     // Batch message navigation events (for split long messages)
     data class ToggleBatchExpansion(val batchId: String) : ChatEvent()
     data class NavigateBatchPart(val batchId: String, val direction: Int, val totalParts: Int) : ChatEvent()

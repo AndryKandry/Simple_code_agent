@@ -67,6 +67,7 @@ class ChatViewModel internal constructor(
             is ChatEvent.LoadSession -> loadSession(viewEvent.sessionId)
             is ChatEvent.DismissTokenWarning -> handleDismissTokenWarning()
             is ChatEvent.RecalculateTokens -> recalculateTokenStats()
+            is ChatEvent.ToggleTokenHints -> handleToggleTokenHints()
             // Batch message navigation
             is ChatEvent.ToggleBatchExpansion -> handleToggleBatchExpansion(viewEvent.batchId)
             is ChatEvent.NavigateBatchPart -> handleNavigateBatchPart(viewEvent.batchId, viewEvent.direction, viewEvent.totalParts)
@@ -430,6 +431,12 @@ class ChatViewModel internal constructor(
     private fun handleDismissTokenWarning() {
         viewState = viewState.copy(
             showTokenWarning = false
+        )
+    }
+
+    private fun handleToggleTokenHints() {
+        viewState = viewState.copy(
+            showTokenHints = !viewState.showTokenHints
         )
     }
 

@@ -13,6 +13,7 @@ import ru.agent.features.chat.data.local.dao.ChatSessionDao
 import ru.agent.features.chat.data.local.dao.MessageDao
 import ru.agent.features.chat.data.local.mapper.MessageMapper.toDomain
 import ru.agent.features.chat.data.local.mapper.MessageMapper.toEntity
+import ru.agent.features.chat.data.remote.DeepSeekApiErrorException
 import ru.agent.features.chat.data.remote.DeepSeekApiClient
 import ru.agent.features.chat.data.remote.dto.ChatRequest
 import ru.agent.features.chat.data.remote.dto.MessageDto
@@ -45,6 +46,8 @@ class ChatRepositoryImpl(
     override suspend fun sendMessage(sessionId: String, message: String): ResultWrapper<Message> {
         logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..." }
 
+        var userMessageId: String? = null
+
         return withContext(Dispatchers.IO) {
             try {
                 // Step 1: Create user message with UUID and estimated token count
@@ -56,6 +59,7 @@ class ChatRepositoryImpl(
                     timestamp = currentTimeMillis(),
                     tokenCount = userTokens
                 )
+                userMessageId = userMessage.id
 
                 // Step 2: Save user message to database
                 messageDao.insertMessage(userMessage.toEntity(sessionId))
@@ -139,6 +143,21 @@ class ChatRepositoryImpl(
                 logger.i { "sendMessage completed successfully for session: $sessionId" }
                 ResultWrapper.Success(assistantMessage)
 
+            } catch (e: DeepSeekApiErrorException) {
+                logger.e(throwable = e) { "DeepSeek API error: ${e.error.message}" }
+                // Remove user message on API error
+                userMessageId?.let { id ->
+                    try {
+                        messageDao.deleteMessageById(id)
+                        logger.d { "Removed user message $id after API error" }
+                    } catch (@Suppress("TooGenericExceptionCaught") deleteError: Exception) {
+                        logger.e(throwable = deleteError) { "Failed to remove user message after API error" }
+                    }
+                }
+                ResultWrapper.Error(
+                    throwable = e,
+                    message = e.message ?: "DeepSeek API error"
+                )
             } catch (e: Exception) {
                 logger.e(throwable = e) { "Error sending message to DeepSeek API" }
                 networkErrorHandling.transformToResultWrapper(e)

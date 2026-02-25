@@ -96,6 +96,7 @@ fun ChatScreen(
         tokenStats = viewState.tokenStats,
         showTokenWarning = viewState.showTokenWarning,
         tokenWarningMessage = viewState.tokenWarningMessage,
+        showTokenHints = viewState.showTokenHints,
         expandedBatches = viewState.expandedBatches,
         currentBatchPart = viewState.currentBatchPart,
         onEvent = { event -> viewModel.obtainEvent(event) },
@@ -135,6 +136,7 @@ private fun ChatContent(
     tokenStats: ru.agent.features.chat.domain.model.TokenStats,
     showTokenWarning: Boolean,
     tokenWarningMessage: String?,
+    showTokenHints: Boolean,
     expandedBatches: Set<String>,
     currentBatchPart: Map<String, Int>,
     onEvent: (ChatEvent) -> Unit,
@@ -212,6 +214,8 @@ private fun ChatContent(
                         showWarning = showTokenWarning,
                         warningMessage = tokenWarningMessage,
                         onDismissWarning = { onEvent(ChatEvent.DismissTokenWarning) },
+                        showHints = showTokenHints,
+                        onToggleHints = { onEvent(ChatEvent.ToggleTokenHints) },
                         modifier = Modifier.fillMaxWidth()
                     )
 
