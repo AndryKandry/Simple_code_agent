@@ -26,5 +26,6 @@ data class MessageEntity(
     val sessionId: String,
     val content: String,
     val senderType: String, // "USER" or "ASSISTANT"
-    val timestamp: Long
+    val timestamp: Long,
+    val tokenCount: Int? = null // Token count from API response.usage
 )

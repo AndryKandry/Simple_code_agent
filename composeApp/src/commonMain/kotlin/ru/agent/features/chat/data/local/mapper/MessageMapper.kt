@@ -18,7 +18,8 @@ object MessageMapper {
             id = this.id,
             content = this.content,
             senderType = SenderType.valueOf(this.senderType),
-            timestamp = this.timestamp
+            timestamp = this.timestamp,
+            tokenCount = this.tokenCount
         )
     }
 
@@ -34,7 +35,8 @@ object MessageMapper {
             sessionId = sessionId,
             content = this.content,
             senderType = this.senderType.name,
-            timestamp = this.timestamp
+            timestamp = this.timestamp,
+            tokenCount = this.tokenCount
         )
     }
 

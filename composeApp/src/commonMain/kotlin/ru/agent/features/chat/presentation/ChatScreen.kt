@@ -40,6 +40,7 @@ import ru.agent.features.chat.presentation.components.ChatInputField
 import ru.agent.features.chat.presentation.components.ChatSidebar
 import ru.agent.features.chat.presentation.components.LoadingIndicator
 import ru.agent.features.chat.presentation.components.MessageList
+import ru.agent.features.chat.presentation.components.TokenStatsPanel
 import ru.agent.features.chat.presentation.models.ChatAction
 import ru.agent.features.chat.presentation.models.ChatEvent
 import ru.agent.features.chat.presentation.theme.ChatColors
@@ -92,6 +93,11 @@ fun ChatScreen(
         sessions = viewState.sessions,
         currentSessionId = viewState.currentSessionId,
         snackbarHostState = snackbarHostState,
+        tokenStats = viewState.tokenStats,
+        showTokenWarning = viewState.showTokenWarning,
+        tokenWarningMessage = viewState.tokenWarningMessage,
+        expandedBatches = viewState.expandedBatches,
+        currentBatchPart = viewState.currentBatchPart,
         onEvent = { event -> viewModel.obtainEvent(event) },
         modifier = Modifier
             .focusRequester(focusRequester)
@@ -126,6 +132,11 @@ private fun ChatContent(
     sessions: List<ChatSession>,
     currentSessionId: String?,
     snackbarHostState: SnackbarHostState,
+    tokenStats: ru.agent.features.chat.domain.model.TokenStats,
+    showTokenWarning: Boolean,
+    tokenWarningMessage: String?,
+    expandedBatches: Set<String>,
+    currentBatchPart: Map<String, Int>,
     onEvent: (ChatEvent) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -187,9 +198,21 @@ private fun ChatContent(
                 ) {
                     MessageList(
                         messages = messages,
+                        expandedBatches = expandedBatches,
+                        currentBatchPart = currentBatchPart,
+                        onEvent = onEvent,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
+                    )
+
+                    // Token stats panel
+                    TokenStatsPanel(
+                        tokenStats = tokenStats,
+                        showWarning = showTokenWarning,
+                        warningMessage = tokenWarningMessage,
+                        onDismissWarning = { onEvent(ChatEvent.DismissTokenWarning) },
+                        modifier = Modifier.fillMaxWidth()
                     )
 
                     ChatInputField(

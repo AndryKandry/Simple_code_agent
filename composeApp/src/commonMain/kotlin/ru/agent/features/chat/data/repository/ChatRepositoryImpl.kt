@@ -20,6 +20,7 @@ import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.chat.domain.model.SenderType
 import ru.agent.features.chat.domain.optimization.ContextOptimizer
 import ru.agent.features.chat.domain.optimization.OptimizedContext
+import ru.agent.features.chat.domain.optimization.ToonEncoder
 import ru.agent.features.chat.domain.repository.ChatRepository
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -46,12 +47,14 @@ class ChatRepositoryImpl(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Step 1: Create user message with UUID
+                // Step 1: Create user message with UUID and estimated token count
+                val userTokens = ToonEncoder.estimateTokens(message)
                 val userMessage = Message(
                     id = Uuid.random().toString(),
                     content = message,
                     senderType = SenderType.USER,
-                    timestamp = currentTimeMillis()
+                    timestamp = currentTimeMillis(),
+                    tokenCount = userTokens
                 )
 
                 // Step 2: Save user message to database
@@ -100,16 +103,18 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                // Step 7: Create and save assistant message
+                // Step 7: Create and save assistant message with token count from API
+                val totalTokens = response.usage.totalTokens
                 val assistantMessage = Message(
                     id = response.id,
                     content = response.choices.first().message.content,
                     senderType = SenderType.ASSISTANT,
-                    timestamp = currentTimeMillis()
+                    timestamp = currentTimeMillis(),
+                    tokenCount = totalTokens
                 )
 
                 messageDao.insertMessage(assistantMessage.toEntity(sessionId))
-                logger.d { "Assistant message saved with ID: ${assistantMessage.id}" }
+                logger.d { "Assistant message saved with ID: ${assistantMessage.id}, tokens: $totalTokens" }
 
                 // Increment message count for assistant message
                 chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())

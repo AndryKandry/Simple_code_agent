@@ -2,15 +2,23 @@ package ru.agent.features.chat.presentation
 
 import androidx.lifecycle.viewModelScope
 import co.touchlab.kermit.Logger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.agent.common.wrappers.ResultWrapper
 import ru.agent.core.presentation.BaseViewModel
 import ru.agent.core.time.currentTimeMillis
 import ru.agent.features.chat.domain.model.Message
+import ru.agent.features.chat.domain.model.ModelLimits
 import ru.agent.features.chat.domain.model.SenderType
+import ru.agent.features.chat.domain.optimization.ToonEncoder
+import ru.agent.features.chat.domain.usecase.CalculateTokenStatsUseCase
 import ru.agent.features.chat.domain.usecase.ClearChatHistoryUseCase
 import ru.agent.features.chat.domain.usecase.CreateChatSessionUseCase
 import ru.agent.features.chat.domain.usecase.DeleteChatSessionUseCase
@@ -29,14 +37,21 @@ class ChatViewModel internal constructor(
     private val clearChatHistoryUseCase: ClearChatHistoryUseCase,
     private val getAllChatSessionsUseCase: GetAllChatSessionsUseCase,
     private val createChatSessionUseCase: CreateChatSessionUseCase,
-    private val deleteChatSessionUseCase: DeleteChatSessionUseCase
+    private val deleteChatSessionUseCase: DeleteChatSessionUseCase,
+    private val calculateTokenStatsUseCase: CalculateTokenStatsUseCase
 ) : BaseViewModel<ChatViewState, ChatAction, ChatEvent>(
     initialState = ChatViewState()
 ) {
 
     private val logger = Logger.withTag("ChatViewModel")
     private var sessionsJob: Job? = null
+    private var tokenCalculationJob: Job? = null
+    private var tokenUpdateJob: Job? = null
     private var isInitialized = false
+
+    companion object {
+        private const val TOKEN_DEBOUNCE_MS = 300L
+    }
 
     override fun obtainEvent(viewEvent: ChatEvent) {
         logger.d { "Event received: $viewEvent" }
@@ -50,6 +65,13 @@ class ChatViewModel internal constructor(
             is ChatEvent.ClearHistory -> handleClearHistory(viewEvent.sessionId)
             is ChatEvent.ToggleSidebar -> toggleSidebar()
             is ChatEvent.LoadSession -> loadSession(viewEvent.sessionId)
+            is ChatEvent.DismissTokenWarning -> handleDismissTokenWarning()
+            is ChatEvent.RecalculateTokens -> recalculateTokenStats()
+            // Batch message navigation
+            is ChatEvent.ToggleBatchExpansion -> handleToggleBatchExpansion(viewEvent.batchId)
+            is ChatEvent.NavigateBatchPart -> handleNavigateBatchPart(viewEvent.batchId, viewEvent.direction, viewEvent.totalParts)
+            is ChatEvent.ExpandBatch -> handleExpandBatch(viewEvent.batchId)
+            is ChatEvent.CollapseBatch -> handleCollapseBatch(viewEvent.batchId)
         }
     }
 
@@ -136,6 +158,9 @@ class ChatViewModel internal constructor(
                 isLoading = false,
                 error = null
             )
+
+            // Recalculate token stats after loading session
+            recalculateTokenStats()
         }
     }
 
@@ -157,7 +182,10 @@ class ChatViewModel internal constructor(
                         currentSession = newSession,
                         messages = emptyList(),
                         isLoading = false,
-                        error = null
+                        error = null,
+                        tokenStats = ru.agent.features.chat.domain.model.TokenStats.Empty,
+                        showTokenWarning = false,
+                        tokenWarningMessage = null
                     )
                     viewAction = ChatAction.NavigateToSession(newSession.id)
                 }
@@ -190,7 +218,9 @@ class ChatViewModel internal constructor(
             currentSessionId = sessionId,
             currentSession = session,
             error = null,  // Clear previous errors
-            inputText = ""  // Clear previous input
+            inputText = "",  // Clear previous input
+            showTokenWarning = false,
+            tokenWarningMessage = null
         )
 
         // Load messages for the selected session
@@ -266,12 +296,16 @@ class ChatViewModel internal constructor(
 
         logger.i { "Sending message to session: $sessionId, text: ${text.take(50)}..." }
 
+        // Estimate tokens for the user message
+        val estimatedUserTokens = ToonEncoder.estimateTokens(text)
+
         // Create optimistic user message for immediate UI display
         val optimisticMessage = Message(
             id = Uuid.random().toString(),
             content = text,
             senderType = SenderType.USER,
-            timestamp = currentTimeMillis()
+            timestamp = currentTimeMillis(),
+            tokenCount = estimatedUserTokens
         )
 
         // Optimistic update: add message to UI immediately
@@ -282,18 +316,25 @@ class ChatViewModel internal constructor(
         )
         viewAction = ChatAction.ScrollToBottom
 
+        // Recalculate tokens after adding message
+        recalculateTokenStats()
+
         viewModelScope.launch {
             when (val result = sendMessageUseCase(sessionId, text)) {
                 is ResultWrapper.Success -> {
                     logger.i { "Message sent successfully" }
                     // Replace optimistic message list with actual data from repository
                     // (this will include both user message and assistant response)
+                    val updatedHistory = getChatHistoryUseCase(sessionId)
                     viewState = viewState.copy(
-                        messages = getChatHistoryUseCase(sessionId),
+                        messages = updatedHistory,
                         isLoading = false,
                         error = null
                     )
                     viewAction = ChatAction.ScrollToBottom
+
+                    // Recalculate tokens after receiving response
+                    recalculateTokenStats()
                 }
                 is ResultWrapper.Error -> {
                     logger.e { "Failed to send message: ${result.message}" }
@@ -308,6 +349,9 @@ class ChatViewModel internal constructor(
                     viewAction = ChatAction.ShowError(
                         result.message ?: "Failed to send message"
                     )
+
+                    // Recalculate tokens after error
+                    recalculateTokenStats()
                 }
             }
         }
@@ -315,6 +359,53 @@ class ChatViewModel internal constructor(
 
     private fun handleInputTextChanged(text: String) {
         viewState = viewState.copy(inputText = text)
+
+        // Schedule debounced token calculation
+        scheduleTokenCalculation(text)
+    }
+
+    /**
+     * Schedule debounced token calculation for input text.
+     */
+    private fun scheduleTokenCalculation(inputText: String) {
+        tokenCalculationJob?.cancel()
+        tokenCalculationJob = viewModelScope.launch {
+            delay(TOKEN_DEBOUNCE_MS)
+            calculateAndUpdateTokenStats(inputText, viewState.messages)
+        }
+    }
+
+    /**
+     * Immediately recalculate token statistics.
+     */
+    private fun recalculateTokenStats() {
+        calculateAndUpdateTokenStats(viewState.inputText, viewState.messages)
+    }
+
+    /**
+     * Calculate and update token statistics.
+     * Cancels any previous token update job to prevent memory leaks and race conditions.
+     */
+    private fun calculateAndUpdateTokenStats(inputText: String, messages: List<Message>) {
+        // Cancel previous calculation to prevent memory leak and race conditions
+        tokenUpdateJob?.cancel()
+        tokenUpdateJob = viewModelScope.launch {
+            val stats = withContext(Dispatchers.IO) {
+                calculateTokenStatsUseCase(inputText, messages)
+            }
+
+            // Ensure we're still active before updating state
+            ensureActive()
+
+            val warningMessage = calculateTokenStatsUseCase.getWarningMessage(stats)
+            val shouldShowWarning = calculateTokenStatsUseCase.shouldShowWarning(stats)
+
+            viewState = viewState.copy(
+                tokenStats = stats,
+                showTokenWarning = shouldShowWarning,
+                tokenWarningMessage = warningMessage
+            )
+        }
     }
 
     private fun handleClearError() {
@@ -326,13 +417,81 @@ class ChatViewModel internal constructor(
         viewModelScope.launch {
             clearChatHistoryUseCase(sessionId)
             if (viewState.currentSessionId == sessionId) {
-                viewState = viewState.copy(messages = emptyList())
+                viewState = viewState.copy(
+                    messages = emptyList(),
+                    tokenStats = ru.agent.features.chat.domain.model.TokenStats.Empty,
+                    showTokenWarning = false,
+                    tokenWarningMessage = null
+                )
             }
         }
+    }
+
+    private fun handleDismissTokenWarning() {
+        viewState = viewState.copy(
+            showTokenWarning = false
+        )
+    }
+
+    // ==================== Batch Message Navigation ====================
+
+    /**
+     * Переключить режим отображения batch (свернутый/развернутый).
+     */
+    private fun handleToggleBatchExpansion(batchId: String) {
+        val newExpandedBatches = if (batchId in viewState.expandedBatches) {
+            viewState.expandedBatches - batchId
+        } else {
+            viewState.expandedBatches + batchId
+        }
+        viewState = viewState.copy(expandedBatches = newExpandedBatches)
+    }
+
+    /**
+     * Развернуть batch (показать весь текст).
+     */
+    private fun handleExpandBatch(batchId: String) {
+        if (batchId !in viewState.expandedBatches) {
+            viewState = viewState.copy(
+                expandedBatches = viewState.expandedBatches + batchId
+            )
+        }
+    }
+
+    /**
+     * Свернуть batch (показывать по частям).
+     */
+    private fun handleCollapseBatch(batchId: String) {
+        if (batchId in viewState.expandedBatches) {
+            viewState = viewState.copy(
+                expandedBatches = viewState.expandedBatches - batchId
+            )
+        }
+    }
+
+    /**
+     * Навигация между частями batch сообщения.
+     *
+     * @param batchId ID группы частей
+     * @param direction Направление: -1 для предыдущей, +1 для следующей
+     * @param totalParts Общее количество частей (для ограничения upper bound)
+     */
+    private fun handleNavigateBatchPart(batchId: String, direction: Int, totalParts: Int) {
+        // Если batch развернут, навигация не требуется
+        if (batchId in viewState.expandedBatches) return
+
+        val currentPart = viewState.currentBatchPart[batchId] ?: 1
+        val newPart = (currentPart + direction).coerceIn(1, totalParts)
+
+        viewState = viewState.copy(
+            currentBatchPart = viewState.currentBatchPart + (batchId to newPart)
+        )
     }
 
     override fun onCleared() {
         super.onCleared()
         sessionsJob?.cancel()
+        tokenCalculationJob?.cancel()
+        tokenUpdateJob?.cancel()
     }
 }
