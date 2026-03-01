@@ -6,22 +6,30 @@ import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import ru.agent.features.chat.data.local.dao.ChatSessionDao
 import ru.agent.features.chat.data.local.dao.MessageDao
+import ru.agent.features.chat.data.local.dao.MessageSummaryDao
+import ru.agent.features.chat.data.local.dao.TokenUsageDao
 import ru.agent.features.chat.data.local.entity.ChatSessionEntity
 import ru.agent.features.chat.data.local.entity.MessageEntity
+import ru.agent.features.chat.data.local.entity.MessageSummaryEntity
+import ru.agent.features.chat.data.local.entity.TokenUsageEntity
 
 @Database(
     entities = [
         TestEntity::class,
         ChatSessionEntity::class,
-        MessageEntity::class
+        MessageEntity::class,
+        MessageSummaryEntity::class,
+        TokenUsageEntity::class
     ],
-    version = 2
+    version = 3
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun getTestDao(): TestDao
     abstract fun getChatSessionDao(): ChatSessionDao
     abstract fun getMessageDao(): MessageDao
+    abstract fun getMessageSummaryDao(): MessageSummaryDao
+    abstract fun getTokenUsageDao(): TokenUsageDao
 }
 
 // The Room compiler generates the `actual` implementations.

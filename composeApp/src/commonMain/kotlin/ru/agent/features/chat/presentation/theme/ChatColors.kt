@@ -10,6 +10,7 @@ object ChatColors {
     // User message gradient colors
     val UserMessageStartColor = Color(0xFFE91E63)  // Pink
     val UserMessageEndColor = Color(0xFF9C27B0)    // Purple
+    val UserMessageColor = Color(0xFFE91E63)       // Solid user message color
 
     // Assistant message gradient colors
     val AssistantMessageStartColor = Color(0xFFFF9800)  // Orange
@@ -22,4 +23,7 @@ object ChatColors {
     // Background gradient colors
     val BackgroundStartColor = Color(0xFF1E1E2E)
     val BackgroundEndColor = Color(0xFF2D1B3D)
+
+    // Accent color for highlights
+    val AccentColor = Color(0xFF4CAF50)  // Green for positive metrics
 }

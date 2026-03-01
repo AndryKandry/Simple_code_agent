@@ -25,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -36,10 +35,12 @@ import org.koin.compose.viewmodel.koinViewModel
 import ru.agent.design.bars.BaseTopAppBar
 import ru.agent.features.chat.domain.model.ChatSession
 import ru.agent.features.chat.domain.model.Message
+import ru.agent.features.chat.domain.model.TokenMetrics
 import ru.agent.features.chat.presentation.components.ChatInputField
 import ru.agent.features.chat.presentation.components.ChatSidebar
 import ru.agent.features.chat.presentation.components.LoadingIndicator
 import ru.agent.features.chat.presentation.components.MessageList
+import ru.agent.features.chat.presentation.components.MetricsPanel
 import ru.agent.features.chat.presentation.models.ChatAction
 import ru.agent.features.chat.presentation.models.ChatEvent
 import ru.agent.features.chat.presentation.theme.ChatColors
@@ -92,6 +93,11 @@ fun ChatScreen(
         sessions = viewState.sessions,
         currentSessionId = viewState.currentSessionId,
         snackbarHostState = snackbarHostState,
+        // Metrics
+        lastCompressionMetrics = viewState.lastCompressionMetrics,
+        showMetricsPanel = viewState.showMetricsPanel,
+        totalTokensSaved = viewState.totalTokensSaved,
+        compressionCount = viewState.compressionCount,
         onEvent = { event -> viewModel.obtainEvent(event) },
         modifier = Modifier
             .focusRequester(focusRequester)
@@ -107,6 +113,11 @@ fun ChatScreen(
                     // Escape to clear input
                     keyEvent.key == Key.Escape -> {
                         viewModel.obtainEvent(ChatEvent.InputTextChanged(""))
+                        true
+                    }
+                    // Ctrl+M to toggle metrics panel
+                    keyEvent.isCtrlPressed && keyEvent.key == Key.M -> {
+                        viewModel.obtainEvent(ChatEvent.ToggleMetricsPanel)
                         true
                     }
                     else -> false
@@ -126,6 +137,11 @@ private fun ChatContent(
     sessions: List<ChatSession>,
     currentSessionId: String?,
     snackbarHostState: SnackbarHostState,
+    // Metrics
+    lastCompressionMetrics: TokenMetrics?,
+    showMetricsPanel: Boolean,
+    totalTokensSaved: Int,
+    compressionCount: Int,
     onEvent: (ChatEvent) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -185,6 +201,16 @@ private fun ChatContent(
                         .fillMaxSize()
                         .padding(paddingValues)
                 ) {
+                    // Metrics Panel - always visible (collapsed by default)
+                    MetricsPanel(
+                        lastMetrics = lastCompressionMetrics,
+                        totalTokensSaved = totalTokensSaved,
+                        compressionCount = compressionCount,
+                        isExpanded = showMetricsPanel,
+                        onToggle = { onEvent(ChatEvent.ToggleMetricsPanel) },
+                        onDismiss = { /* Not used in this design */ }
+                    )
+
                     MessageList(
                         messages = messages,
                         modifier = Modifier

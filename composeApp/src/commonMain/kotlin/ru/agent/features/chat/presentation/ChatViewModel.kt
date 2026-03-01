@@ -16,6 +16,7 @@ import ru.agent.features.chat.domain.usecase.CreateChatSessionUseCase
 import ru.agent.features.chat.domain.usecase.DeleteChatSessionUseCase
 import ru.agent.features.chat.domain.usecase.GetAllChatSessionsUseCase
 import ru.agent.features.chat.domain.usecase.GetChatHistoryUseCase
+import ru.agent.features.chat.domain.usecase.GetTokenMetricsUseCase
 import ru.agent.features.chat.domain.usecase.SendMessageUseCase
 import ru.agent.features.chat.presentation.models.ChatAction
 import ru.agent.features.chat.presentation.models.ChatEvent
@@ -29,7 +30,8 @@ class ChatViewModel internal constructor(
     private val clearChatHistoryUseCase: ClearChatHistoryUseCase,
     private val getAllChatSessionsUseCase: GetAllChatSessionsUseCase,
     private val createChatSessionUseCase: CreateChatSessionUseCase,
-    private val deleteChatSessionUseCase: DeleteChatSessionUseCase
+    private val deleteChatSessionUseCase: DeleteChatSessionUseCase,
+    private val getTokenMetricsUseCase: GetTokenMetricsUseCase
 ) : BaseViewModel<ChatViewState, ChatAction, ChatEvent>(
     initialState = ChatViewState()
 ) {
@@ -50,6 +52,7 @@ class ChatViewModel internal constructor(
             is ChatEvent.ClearHistory -> handleClearHistory(viewEvent.sessionId)
             is ChatEvent.ToggleSidebar -> toggleSidebar()
             is ChatEvent.LoadSession -> loadSession(viewEvent.sessionId)
+            is ChatEvent.ToggleMetricsPanel -> toggleMetricsPanel()
         }
     }
 
@@ -68,6 +71,9 @@ class ChatViewModel internal constructor(
 
         // Start observing sessions
         loadSessions()
+
+        // Load global metrics
+        loadGlobalMetrics()
 
         // Load specific session or create new one
         if (sessionId != null) {
@@ -119,6 +125,21 @@ class ChatViewModel internal constructor(
     }
 
     /**
+     * Load global metrics (total tokens saved, compression count).
+     */
+    private fun loadGlobalMetrics() {
+        viewModelScope.launch {
+            val totalSaved = getTokenMetricsUseCase.getTotalTokensSaved()
+            val count = getTokenMetricsUseCase.getCompressionCount()
+
+            viewState = viewState.copy(
+                totalTokensSaved = totalSaved,
+                compressionCount = count
+            )
+        }
+    }
+
+    /**
      * Load a specific session by ID.
      */
     private fun loadSession(sessionId: String) {
@@ -129,12 +150,16 @@ class ChatViewModel internal constructor(
             val session = viewState.sessions.find { it.id == sessionId }
             val history = getChatHistoryUseCase(sessionId)
 
+            // Load last compression metrics for this session
+            val lastMetrics = getTokenMetricsUseCase.getLastMetrics(sessionId)
+
             viewState = viewState.copy(
                 currentSessionId = sessionId,
                 currentSession = session,
                 messages = history,
                 isLoading = false,
-                error = null
+                error = null,
+                lastCompressionMetrics = lastMetrics
             )
         }
     }
@@ -157,7 +182,8 @@ class ChatViewModel internal constructor(
                         currentSession = newSession,
                         messages = emptyList(),
                         isLoading = false,
-                        error = null
+                        error = null,
+                        lastCompressionMetrics = null // No metrics for new session
                     )
                     viewAction = ChatAction.NavigateToSession(newSession.id)
                 }
@@ -218,6 +244,9 @@ class ChatViewModel internal constructor(
                             createNewSession()
                         }
                     }
+
+                    // Refresh global metrics
+                    loadGlobalMetrics()
                 }
                 is ResultWrapper.Error -> {
                     logger.e { "Failed to delete session: ${result.message}" }
@@ -232,6 +261,13 @@ class ChatViewModel internal constructor(
      */
     private fun toggleSidebar() {
         viewState = viewState.copy(isSidebarOpen = !viewState.isSidebarOpen)
+    }
+
+    /**
+     * Toggle metrics panel visibility.
+     */
+    private fun toggleMetricsPanel() {
+        viewState = viewState.copy(showMetricsPanel = !viewState.showMetricsPanel)
     }
 
     @OptIn(ExperimentalUuidApi::class)
@@ -294,6 +330,10 @@ class ChatViewModel internal constructor(
                         error = null
                     )
                     viewAction = ChatAction.ScrollToBottom
+
+                    // Refresh metrics after message sent (compression may have occurred)
+                    loadSessionMetrics(sessionId)
+                    loadGlobalMetrics()
                 }
                 is ResultWrapper.Error -> {
                     logger.e { "Failed to send message: ${result.message}" }
@@ -313,6 +353,19 @@ class ChatViewModel internal constructor(
         }
     }
 
+    /**
+     * Load metrics for a specific session.
+     */
+    private fun loadSessionMetrics(sessionId: String) {
+        viewModelScope.launch {
+            val lastMetrics = getTokenMetricsUseCase.getLastMetrics(sessionId)
+            if (lastMetrics != null) {
+                viewState = viewState.copy(lastCompressionMetrics = lastMetrics)
+                logger.d { "Updated metrics: saved=${lastMetrics.tokensSaved} tokens" }
+            }
+        }
+    }
+
     private fun handleInputTextChanged(text: String) {
         viewState = viewState.copy(inputText = text)
     }
@@ -326,8 +379,12 @@ class ChatViewModel internal constructor(
         viewModelScope.launch {
             clearChatHistoryUseCase(sessionId)
             if (viewState.currentSessionId == sessionId) {
-                viewState = viewState.copy(messages = emptyList())
+                viewState = viewState.copy(
+                    messages = emptyList(),
+                    lastCompressionMetrics = null
+                )
             }
+            loadGlobalMetrics()
         }
     }
 

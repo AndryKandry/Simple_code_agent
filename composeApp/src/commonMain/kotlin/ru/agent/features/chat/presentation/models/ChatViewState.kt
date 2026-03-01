@@ -2,6 +2,7 @@ package ru.agent.features.chat.presentation.models
 
 import ru.agent.features.chat.domain.model.ChatSession
 import ru.agent.features.chat.domain.model.Message
+import ru.agent.features.chat.domain.model.TokenMetrics
 
 data class ChatViewState(
     val currentSessionId: String? = null,
@@ -12,5 +13,10 @@ data class ChatViewState(
     val inputText: String = "",
     val isSidebarOpen: Boolean = true,
     val sessions: List<ChatSession> = emptyList(),
-    val isLoadingSessions: Boolean = false
+    val isLoadingSessions: Boolean = false,
+    // Token metrics for compression display
+    val lastCompressionMetrics: TokenMetrics? = null,
+    val showMetricsPanel: Boolean = false,
+    val totalTokensSaved: Int = 0,
+    val compressionCount: Int = 0
 )

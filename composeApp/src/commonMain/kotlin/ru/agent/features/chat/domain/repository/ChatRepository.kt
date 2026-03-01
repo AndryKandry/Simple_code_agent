@@ -3,6 +3,7 @@ package ru.agent.features.chat.domain.repository
 import kotlinx.coroutines.flow.Flow
 import ru.agent.common.wrappers.ResultWrapper
 import ru.agent.features.chat.domain.model.Message
+import ru.agent.features.chat.domain.model.MessageSummary
 import ru.agent.features.chat.domain.optimization.OptimizedContext
 
 interface ChatRepository {
@@ -31,4 +32,19 @@ interface ChatRepository {
      * Uses token optimization strategies to fit within context limits.
      */
     suspend fun getOptimizedContext(sessionId: String): OptimizedContext
+
+    /**
+     * Get summary for a specific session.
+     */
+    suspend fun getSummary(sessionId: String): MessageSummary?
+
+    /**
+     * Generate or regenerate summary for a session.
+     */
+    suspend fun generateSummary(sessionId: String): MessageSummary?
+
+    /**
+     * Delete summary for a session.
+     */
+    suspend fun deleteSummary(sessionId: String)
 }

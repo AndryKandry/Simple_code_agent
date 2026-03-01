@@ -17,10 +17,14 @@ import ru.agent.features.chat.data.remote.DeepSeekApiClient
 import ru.agent.features.chat.data.remote.dto.ChatRequest
 import ru.agent.features.chat.data.remote.dto.MessageDto
 import ru.agent.features.chat.domain.model.Message
+import ru.agent.features.chat.domain.model.MessageSummary
 import ru.agent.features.chat.domain.model.SenderType
 import ru.agent.features.chat.domain.optimization.ContextOptimizer
 import ru.agent.features.chat.domain.optimization.OptimizedContext
 import ru.agent.features.chat.domain.repository.ChatRepository
+import ru.agent.features.chat.domain.repository.MessageSummaryRepository
+import ru.agent.features.chat.domain.usecase.CompressHistoryUseCase
+import ru.agent.features.chat.domain.usecase.GenerateSummaryUseCase
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -28,14 +32,17 @@ import kotlin.uuid.Uuid
  * Implementation of ChatRepository using Room database for persistent storage.
  *
  * Uses DeepSeek API for AI responses and stores all messages in local database.
- * Includes context optimization to manage token limits.
+ * Includes context optimization with AI-generated summaries to manage token limits.
  */
 class ChatRepositoryImpl(
     private val deepSeekApiClient: DeepSeekApiClient,
     private val networkErrorHandling: NetworkErrorHandling,
     private val messageDao: MessageDao,
     private val chatSessionDao: ChatSessionDao,
-    private val contextOptimizer: ContextOptimizer
+    private val contextOptimizer: ContextOptimizer,
+    private val compressHistoryUseCase: CompressHistoryUseCase,
+    private val generateSummaryUseCase: GenerateSummaryUseCase,
+    private val messageSummaryRepository: MessageSummaryRepository
 ) : ChatRepository {
 
     private val logger = Logger.withTag("ChatRepository")
@@ -62,7 +69,7 @@ class ChatRepositoryImpl(
                 chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
                 logger.d { "Session message count incremented for session: $sessionId" }
 
-                // Step 4: Get optimized context
+                // Step 4: Get optimized context with compression
                 val optimizedContext = getOptimizedContext(sessionId)
                 logger.d {
                     "Context optimized for API request. " +
@@ -160,6 +167,10 @@ class ChatRepositoryImpl(
             logger.i { "clearHistory: Clearing messages for session $sessionId" }
             messageDao.deleteMessagesForSession(sessionId)
 
+            // Also clear summary when clearing history
+            messageSummaryRepository.deleteSummary(sessionId)
+            logger.d { "Summary cleared for session $sessionId" }
+
             // Reset message count in session
             val session = chatSessionDao.getSessionById(sessionId)
             if (session != null) {
@@ -177,7 +188,9 @@ class ChatRepositoryImpl(
 
     override suspend fun getOptimizedContext(sessionId: String): OptimizedContext {
         val messages = getChatHistory(sessionId)
-        val optimized = contextOptimizer.optimize(messages)
+
+        // Use CompressHistoryUseCase for compression with summaries
+        val optimized = compressHistoryUseCase(sessionId, messages)
 
         logger.d {
             "Optimized context for session: $sessionId. " +
@@ -187,6 +200,29 @@ class ChatRepositoryImpl(
         }
 
         return optimized
+    }
+
+    override suspend fun getSummary(sessionId: String): MessageSummary? {
+        return withContext(Dispatchers.IO) {
+            messageSummaryRepository.getSummary(sessionId).also {
+                logger.d { "getSummary for session $sessionId: found=${it != null}" }
+            }
+        }
+    }
+
+    override suspend fun generateSummary(sessionId: String): MessageSummary? {
+        return withContext(Dispatchers.IO) {
+            logger.i { "Generating summary for session: $sessionId" }
+            val messages = getChatHistory(sessionId)
+            generateSummaryUseCase(sessionId, messages)
+        }
+    }
+
+    override suspend fun deleteSummary(sessionId: String) {
+        withContext(Dispatchers.IO) {
+            logger.i { "Deleting summary for session: $sessionId" }
+            messageSummaryRepository.deleteSummary(sessionId)
+        }
     }
 
     /**
