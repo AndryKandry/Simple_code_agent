@@ -97,4 +97,81 @@ interface MessageDao {
         startTime: Long,
         endTime: Long
     ): List<MessageEntity>
+
+    // =====================
+    // Branching Strategy Methods
+    // =====================
+
+    /**
+     * Get messages for a specific checkpoint (branch).
+     * Returns messages that belong to the specified checkpoint or the main branch (checkpointId IS NULL).
+     *
+     * @param sessionId The session ID
+     * @param checkpointId The checkpoint ID, or null for main branch
+     */
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sessionId = :sessionId
+        AND (checkpointId = :checkpointId OR (:checkpointId IS NULL AND checkpointId IS NULL))
+        ORDER BY timestamp ASC
+        """
+    )
+    suspend fun getMessagesForBranch(sessionId: String, checkpointId: String?): List<MessageEntity>
+
+    /**
+     * Get messages for a specific checkpoint as Flow.
+     */
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sessionId = :sessionId
+        AND (checkpointId = :checkpointId OR (:checkpointId IS NULL AND checkpointId IS NULL))
+        ORDER BY timestamp ASC
+        """
+    )
+    fun getMessagesForBranchFlow(sessionId: String, checkpointId: String?): Flow<List<MessageEntity>>
+
+    /**
+     * Get count of messages for a specific checkpoint.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM messages
+        WHERE sessionId = :sessionId
+        AND (checkpointId = :checkpointId OR (:checkpointId IS NULL AND checkpointId IS NULL))
+        """
+    )
+    suspend fun getMessageCountForBranch(sessionId: String, checkpointId: String?): Int
+
+    /**
+     * Delete all messages for a specific checkpoint.
+     */
+    @Query(
+        """
+        DELETE FROM messages
+        WHERE sessionId = :sessionId
+        AND checkpointId = :checkpointId
+        """
+    )
+    suspend fun deleteMessagesForBranch(sessionId: String, checkpointId: String)
+
+    /**
+     * Get messages before a specific message ID (for branching).
+     * Used to get all messages up to a checkpoint.
+     */
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sessionId = :sessionId
+        AND timestamp <= (SELECT timestamp FROM messages WHERE id = :messageId)
+        AND (checkpointId IS NULL OR checkpointId = :checkpointId)
+        ORDER BY timestamp ASC
+        """
+    )
+    suspend fun getMessagesBeforeMessage(
+        sessionId: String,
+        messageId: String,
+        checkpointId: String? = null
+    ): List<MessageEntity>
 }

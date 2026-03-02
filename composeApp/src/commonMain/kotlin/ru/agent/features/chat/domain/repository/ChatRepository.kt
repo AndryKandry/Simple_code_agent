@@ -8,8 +8,16 @@ import ru.agent.features.chat.domain.optimization.OptimizedContext
 interface ChatRepository {
     /**
      * Send a message in the specified session.
+     *
+     * @param sessionId ID of the chat session
+     * @param message Message content to send
+     * @param checkpointId ID of the checkpoint for branching (null for main branch)
      */
-    suspend fun sendMessage(sessionId: String, message: String): ResultWrapper<Message>
+    suspend fun sendMessage(
+        sessionId: String,
+        message: String,
+        checkpointId: String? = null
+    ): ResultWrapper<Message>
 
     /**
      * Get chat history for a specific session (one-time request).

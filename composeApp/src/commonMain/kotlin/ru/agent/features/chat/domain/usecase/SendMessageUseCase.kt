@@ -12,9 +12,14 @@ class SendMessageUseCase(
      *
      * @param sessionId ID of the chat session
      * @param message Message content to send
+     * @param checkpointId ID of the checkpoint for branching (null for main branch)
      * @return ResultWrapper containing the response Message or an error
      */
-    suspend operator fun invoke(sessionId: String, message: String): ResultWrapper<Message> {
+    suspend operator fun invoke(
+        sessionId: String,
+        message: String,
+        checkpointId: String? = null
+    ): ResultWrapper<Message> {
         // Validate sessionId
         if (sessionId.isBlank()) {
             return ResultWrapper.Error(
@@ -31,6 +36,6 @@ class SendMessageUseCase(
             )
         }
 
-        return chatRepository.sendMessage(sessionId.trim(), message.trim())
+        return chatRepository.sendMessage(sessionId.trim(), message.trim(), checkpointId)
     }
 }

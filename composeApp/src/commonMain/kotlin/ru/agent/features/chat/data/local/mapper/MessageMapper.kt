@@ -18,7 +18,9 @@ object MessageMapper {
             id = this.id,
             content = this.content,
             senderType = SenderType.valueOf(this.senderType),
-            timestamp = this.timestamp
+            timestamp = this.timestamp,
+            checkpointId = this.checkpointId,
+            parentMessageId = this.parentMessageId
         )
     }
 
@@ -34,7 +36,9 @@ object MessageMapper {
             sessionId = sessionId,
             content = this.content,
             senderType = this.senderType.name,
-            timestamp = this.timestamp
+            timestamp = this.timestamp,
+            checkpointId = this.checkpointId,
+            parentMessageId = this.parentMessageId
         )
     }
 

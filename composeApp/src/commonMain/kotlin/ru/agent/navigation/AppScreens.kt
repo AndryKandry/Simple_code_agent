@@ -2,7 +2,8 @@ package ru.agent.navigation
 
 enum class AppScreens(val title: String) {
     Main("main"),
-    Chat("chat?sessionId={sessionId}");
+    Chat("chat?sessionId={sessionId}"),
+    Comparison("comparison");
 
     companion object {
         fun chatWithSession(sessionId: String) = "chat?sessionId=$sessionId"

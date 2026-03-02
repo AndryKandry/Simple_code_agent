@@ -8,5 +8,7 @@ data class ChatSession(
     val messages: List<Message> = emptyList(),
     val createdAt: Long = currentTimeMillis(),
     val updatedAt: Long = currentTimeMillis(),
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val contextStrategy: ContextStrategy = ContextStrategy.DEFAULT,
+    val isComparison: Boolean = false
 )

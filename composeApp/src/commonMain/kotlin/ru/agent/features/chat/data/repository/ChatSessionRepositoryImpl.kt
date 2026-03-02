@@ -19,6 +19,11 @@ import ru.agent.features.chat.domain.repository.ChatSessionRepository
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
+// Extension for converting list of entities to domain models
+private fun List<ru.agent.features.chat.data.local.entity.ChatSessionEntity>.toDomainList(): List<ChatSession> {
+    return this.map { it.toDomain() }
+}
+
 /**
  * Implementation of ChatSessionRepository using Room database.
  *
@@ -175,6 +180,32 @@ class ChatSessionRepositoryImpl(
                     message = "Failed to update session title: ${e.message}"
                 )
             }
+        }
+    }
+
+    override suspend fun deleteComparisonSessions(): ResultWrapper<Int> {
+        return withContext(Dispatchers.IO) {
+            try {
+                logger.i { "deleteComparisonSessions: Deleting all comparison sessions" }
+
+                val count = chatSessionDao.deleteComparisonSessions()
+
+                logger.i { "deleteComparisonSessions: Successfully deleted $count comparison sessions" }
+                ResultWrapper.Success(count)
+            } catch (e: Exception) {
+                logger.e(throwable = e) { "deleteComparisonSessions: Failed to delete comparison sessions" }
+                ResultWrapper.Error(
+                    throwable = e,
+                    message = "Failed to delete comparison sessions: ${e.message}"
+                )
+            }
+        }
+    }
+
+    override suspend fun getComparisonSessions(): List<ChatSession> {
+        return withContext(Dispatchers.IO) {
+            logger.d { "getComparisonSessions: Fetching all comparison sessions" }
+            chatSessionDao.getComparisonSessions().toDomainList()
         }
     }
 }

@@ -11,5 +11,7 @@ data class ChatSessionEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val isArchived: Boolean = false,
-    val messageCount: Int = 0
+    val messageCount: Int = 0,
+    val contextStrategy: String = "SLIDING_WINDOW",
+    val isComparison: Boolean = false
 )

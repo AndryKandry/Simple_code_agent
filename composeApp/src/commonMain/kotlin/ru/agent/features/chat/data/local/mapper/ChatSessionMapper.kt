@@ -2,6 +2,7 @@ package ru.agent.features.chat.data.local.mapper
 
 import ru.agent.features.chat.data.local.entity.ChatSessionEntity
 import ru.agent.features.chat.domain.model.ChatSession
+import ru.agent.features.chat.domain.model.ContextStrategy
 import ru.agent.features.chat.domain.model.Message
 
 /**
@@ -23,7 +24,10 @@ object ChatSessionMapper {
             messages = messages,
             createdAt = this.createdAt,
             updatedAt = this.updatedAt,
-            isArchived = this.isArchived
+            isArchived = this.isArchived,
+            contextStrategy = runCatching { ContextStrategy.valueOf(this.contextStrategy) }
+                .getOrDefault(ContextStrategy.DEFAULT),
+            isComparison = this.isComparison
         )
     }
 
@@ -39,7 +43,9 @@ object ChatSessionMapper {
             createdAt = this.createdAt,
             updatedAt = this.updatedAt,
             isArchived = this.isArchived,
-            messageCount = this.messages.size
+            messageCount = this.messages.size,
+            contextStrategy = this.contextStrategy.name,
+            isComparison = this.isComparison
         )
     }
 

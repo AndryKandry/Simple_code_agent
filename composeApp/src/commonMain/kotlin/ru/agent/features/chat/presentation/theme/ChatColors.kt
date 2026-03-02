@@ -22,4 +22,13 @@ object ChatColors {
     // Background gradient colors
     val BackgroundStartColor = Color(0xFF1E1E2E)
     val BackgroundEndColor = Color(0xFF2D1B3D)
+
+    // Facts Panel colors
+    val PanelBackground = Color(0xFF1A1A2E)
+    val PanelFooterBackground = Color(0xFF16162A)
+    val CardBackground = Color(0xFF2A2A4A)
+    val AccentColor = Color(0xFF7C4DFF)
+    val TextPrimary = Color(0xFFE0E0E0)
+    val TextSecondary = Color(0xFF9E9E9E)
+    val ErrorColor = Color(0xFFEF5350)
 }

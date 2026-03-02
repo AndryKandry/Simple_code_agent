@@ -12,12 +12,21 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import ru.agent.features.chat.data.remote.dto.ChatRequest
 import ru.agent.features.chat.data.remote.dto.ChatResponse
+import ru.agent.features.chat.domain.repository.LlmApiClient
 
+/**
+ * DeepSeek API client implementation.
+ *
+ * Implements LlmApiClient interface to maintain Clean Architecture.
+ * Domain layer uses LlmApiClient interface, this concrete implementation
+ * is injected via DI.
+ */
 class DeepSeekApiClient(
     private val httpClient: HttpClient,
     private val apiKey: String
-) {
-    suspend fun sendMessage(request: ChatRequest): ChatResponse {
+) : LlmApiClient {
+
+    override suspend fun sendMessage(request: ChatRequest): ChatResponse {
         return try {
             withTimeout(DeepSeekApi.TIMEOUT) {
                 httpClient.post("${DeepSeekApi.BASE_URL}/chat/completions") {

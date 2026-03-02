@@ -41,17 +41,22 @@ class ChatRepositoryImpl(
     private val logger = Logger.withTag("ChatRepository")
 
     @OptIn(ExperimentalUuidApi::class)
-    override suspend fun sendMessage(sessionId: String, message: String): ResultWrapper<Message> {
-        logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..." }
+    override suspend fun sendMessage(
+        sessionId: String,
+        message: String,
+        checkpointId: String?
+    ): ResultWrapper<Message> {
+        logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..., checkpointId: $checkpointId" }
 
         return withContext(Dispatchers.IO) {
             try {
-                // Step 1: Create user message with UUID
+                // Step 1: Create user message with UUID and checkpoint ID
                 val userMessage = Message(
                     id = Uuid.random().toString(),
                     content = message,
                     senderType = SenderType.USER,
-                    timestamp = currentTimeMillis()
+                    timestamp = currentTimeMillis(),
+                    checkpointId = checkpointId
                 )
 
                 // Step 2: Save user message to database
@@ -77,6 +82,7 @@ class ChatRepositoryImpl(
                         role = when (msg.senderType) {
                             SenderType.USER -> "user"
                             SenderType.ASSISTANT -> "assistant"
+                            SenderType.SYSTEM -> "system"
                         },
                         content = msg.content
                     )

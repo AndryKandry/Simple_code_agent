@@ -45,4 +45,15 @@ interface ChatSessionRepository {
      * Update session title.
      */
     suspend fun updateSessionTitle(sessionId: String, title: String): ResultWrapper<Unit>
+
+    /**
+     * Delete all comparison sessions.
+     * Used to clean up temporary sessions created for strategy comparison.
+     */
+    suspend fun deleteComparisonSessions(): ResultWrapper<Int>
+
+    /**
+     * Get all comparison sessions.
+     */
+    suspend fun getComparisonSessions(): List<ChatSession>
 }

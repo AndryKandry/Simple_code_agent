@@ -12,6 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import ru.agent.features.chat.presentation.ChatScreen
+import ru.agent.features.chat.presentation.ComparisonScreen
 import ru.agent.features.main.presentation.MainScreen
 import ru.agent.navigation.AppScreens
 import ru.agent.navigation.LocalNavHost
@@ -52,7 +53,17 @@ internal fun DefaultApp(
             ) { backStackEntry ->
                 val sessionId: String? = backStackEntry.savedStateHandle["sessionId"]
                 val validSessionId = sessionId?.takeIf { it.isNotEmpty() }
-                ChatScreen(sessionId = validSessionId)
+                ChatScreen(
+                    sessionId = validSessionId,
+                    onOpenComparisonMode = {
+                        navController.navigate(AppScreens.Comparison.title)
+                    }
+                )
+            }
+            composable(route = AppScreens.Comparison.title) {
+                ComparisonScreen(
+                    onBack = { navController.popBackStack() }
+                )
             }
         }
     }

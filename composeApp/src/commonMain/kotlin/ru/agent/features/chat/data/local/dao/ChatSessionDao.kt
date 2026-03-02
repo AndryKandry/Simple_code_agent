@@ -85,4 +85,17 @@ interface ChatSessionDao {
      */
     @Query("UPDATE chat_sessions SET isArchived = 0 WHERE id = :sessionId")
     suspend fun unarchiveSession(sessionId: String)
+
+    /**
+     * Удалить все comparison-сессии.
+     * Используется для очистки временных сессий, созданных для сравнения стратегий.
+     */
+    @Query("DELETE FROM chat_sessions WHERE isComparison = 1")
+    suspend fun deleteComparisonSessions(): Int
+
+    /**
+     * Получить все comparison-сессии.
+     */
+    @Query("SELECT * FROM chat_sessions WHERE isComparison = 1")
+    suspend fun getComparisonSessions(): List<ChatSessionEntity>
 }
