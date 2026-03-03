@@ -25,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -43,6 +42,8 @@ import ru.agent.features.chat.presentation.components.MessageList
 import ru.agent.features.chat.presentation.models.ChatAction
 import ru.agent.features.chat.presentation.models.ChatEvent
 import ru.agent.features.chat.presentation.theme.ChatColors
+import ru.agent.features.profile.presentation.ProfileDialog
+import ru.agent.features.profile.presentation.ProfileIndicator
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,6 +84,17 @@ fun ChatScreen(
         }
     }
 
+    // Profile dialog
+    if (viewState.isProfileDialogOpen) {
+        ProfileDialog(
+            onDismiss = { viewModel.obtainEvent(ChatEvent.CloseProfileSettings) },
+            onSaved = {
+                viewModel.obtainEvent(ChatEvent.CloseProfileSettings)
+                viewModel.obtainEvent(ChatEvent.ProfileUpdated)
+            }
+        )
+    }
+
     ChatContent(
         messages = viewState.messages,
         currentSession = viewState.currentSession,
@@ -91,6 +103,7 @@ fun ChatScreen(
         isSidebarOpen = viewState.isSidebarOpen,
         sessions = viewState.sessions,
         currentSessionId = viewState.currentSessionId,
+        currentProfile = viewState.currentProfile,
         snackbarHostState = snackbarHostState,
         onEvent = { event -> viewModel.obtainEvent(event) },
         modifier = Modifier
@@ -102,6 +115,11 @@ fun ChatScreen(
                         if (viewState.inputText.isNotBlank() && !viewState.isLoading) {
                             viewModel.obtainEvent(ChatEvent.SendMessage(viewState.inputText))
                         }
+                        true
+                    }
+                    // Ctrl+P to open profile settings
+                    keyEvent.isCtrlPressed && keyEvent.key == Key.P -> {
+                        viewModel.obtainEvent(ChatEvent.OpenProfileSettings)
                         true
                     }
                     // Escape to clear input
@@ -125,6 +143,7 @@ private fun ChatContent(
     isSidebarOpen: Boolean,
     sessions: List<ChatSession>,
     currentSessionId: String?,
+    currentProfile: ru.agent.features.memory.domain.model.UserProfile?,
     snackbarHostState: SnackbarHostState,
     onEvent: (ChatEvent) -> Unit,
     modifier: Modifier = Modifier
@@ -142,6 +161,7 @@ private fun ChatContent(
         ChatSidebar(
             sessions = sessions,
             currentSessionId = currentSessionId,
+            currentProfile = currentProfile,
             isOpen = isSidebarOpen,
             onEvent = onEvent,
             modifier = Modifier.fillMaxHeight()
@@ -171,7 +191,20 @@ private fun ChatContent(
                                     )
                                 }
                             },
-                            actions = {}
+                            actions = {
+                                // Profile indicator
+                                currentProfile?.let { profile ->
+                                    ProfileIndicator(
+                                        userName = profile.name,
+                                        userRole = profile.role,
+                                        preferredLanguage = profile.preferences.preferredLanguage,
+                                        verbosity = profile.preferences.responseVerbosity,
+                                        lastActiveAt = profile.interactionStats.lastActiveAt,
+                                        onClick = { onEvent(ChatEvent.OpenProfileSettings) },
+                                        onResetDefaults = { onEvent(ChatEvent.ResetProfileToDefaults) }
+                                    )
+                                }
+                            }
                         )
                         LoadingIndicator(isLoading = isLoading)
                     }

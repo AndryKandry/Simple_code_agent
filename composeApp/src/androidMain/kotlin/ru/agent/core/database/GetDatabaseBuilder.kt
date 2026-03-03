@@ -17,5 +17,5 @@ fun getDatabaseBuilder(context: Context): RoomDatabase.Builder<AppDatabase> {
         // При изменении схемы базы данных старая версия будет полностью удалена и создана новая.
         // ПЕРЕД ВЫПУСКОМ В PRODUCTION необходимо заменить на реальные миграции с использованием
         // .addMigrations(Migration13To14(), ...) для сохранения данных пользователей.
-        .fallbackToDestructiveMigration()
+        .fallbackToDestructiveMigration(dropAllTables = true)
 }

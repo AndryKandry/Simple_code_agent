@@ -1,7 +1,7 @@
 package ru.agent.features.chat.di
 
 import org.koin.core.module.dsl.singleOf
-import org.koin.core.module.dsl.viewModelOf
+import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
@@ -53,5 +53,17 @@ val featureChatModule = module {
     singleOf(::GetOptimizedContextUseCase)
 
     // ViewModel
-    viewModelOf(::ChatViewModel)
+    viewModel {
+        ChatViewModel(
+            sendMessageUseCase = get(),
+            getChatHistoryUseCase = get(),
+            clearChatHistoryUseCase = get(),
+            getAllChatSessionsUseCase = get(),
+            createChatSessionUseCase = get(),
+            deleteChatSessionUseCase = get(),
+            addMessageToMemoryUseCase = get(),
+            clearShortTermMemoryUseCase = get(),
+            createDefaultProfileUseCase = get()
+        )
+    }
 }

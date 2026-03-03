@@ -19,6 +19,8 @@ data class UserProfileEntity(
     @PrimaryKey
     val id: String,
     val name: String,
+    val role: String,
+    val context: String,
     // Preferences as JSON
     val preferredLanguage: String,
     val codeStyleIndentSize: Int,

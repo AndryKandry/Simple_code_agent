@@ -19,6 +19,7 @@ import ru.agent.features.memory.domain.model.KnowledgeCategory
 import ru.agent.features.memory.domain.model.KnowledgeEntry
 import ru.agent.features.memory.domain.model.UserProfile
 import ru.agent.features.memory.domain.repository.LongTermMemoryRepository
+import ru.agent.features.profile.domain.repository.UserProfileRepository
 
 /**
  * Repository implementation for Long-term Memory (LTM)
@@ -32,10 +33,6 @@ class LongTermMemoryRepositoryImpl(
 ) : LongTermMemoryRepository {
 
     private val logger = Logger.withTag("LongTermMemoryRepository")
-
-    companion object {
-        const val DEFAULT_USER_ID = "default"
-    }
 
     // === User Profile ===
 
@@ -73,7 +70,7 @@ class LongTermMemoryRepositoryImpl(
                 } else {
                     val now = currentTimeMillis()
                     val profile = UserProfile(
-                        id = DEFAULT_USER_ID,
+                        id = UserProfileRepository.DEFAULT_USER_ID,
                         name = "User",
                         createdAt = now,
                         updatedAt = now
@@ -87,7 +84,7 @@ class LongTermMemoryRepositoryImpl(
         } catch (e: Exception) {
             logger.e { "Error creating default profile: ${e.message}" }
             UserProfile(
-                id = DEFAULT_USER_ID,
+                id = UserProfileRepository.DEFAULT_USER_ID,
                 name = "User",
                 createdAt = currentTimeMillis(),
                 updatedAt = currentTimeMillis()

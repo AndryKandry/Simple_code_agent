@@ -42,6 +42,8 @@ import kotlinx.datetime.minus
 import kotlinx.datetime.toLocalDateTime
 import ru.agent.core.time.currentTimeMillis
 import ru.agent.features.chat.domain.model.ChatSession
+import ru.agent.features.memory.domain.model.UserProfile
+import ru.agent.features.profile.presentation.ProfileDashboard
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
@@ -49,6 +51,7 @@ import kotlin.time.Instant
 fun ChatSidebar(
     sessions: List<ChatSession>,
     currentSessionId: String?,
+    currentProfile: UserProfile?,
     isOpen: Boolean,
     onEvent: (ru.agent.features.chat.presentation.models.ChatEvent) -> Unit,
     modifier: Modifier = Modifier
@@ -118,6 +121,24 @@ fun ChatSidebar(
                                     )
                                 }
                             )
+                        }
+
+                        // Profile dashboard at the bottom of sidebar
+                        currentProfile?.let { profile ->
+                            item {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                ProfileDashboard(
+                                    profile = profile,
+                                    isCompact = true,
+                                    onEditClick = {
+                                        onEvent(ru.agent.features.chat.presentation.models.ChatEvent.OpenProfileSettings)
+                                    },
+                                    onSettingsClick = {
+                                        onEvent(ru.agent.features.chat.presentation.models.ChatEvent.OpenProfileSettings)
+                                    },
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+                            }
                         }
                     }
                 }

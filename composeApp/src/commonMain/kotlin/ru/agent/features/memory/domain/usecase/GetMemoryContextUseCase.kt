@@ -6,6 +6,7 @@ import ru.agent.features.memory.domain.model.ShortTermMemory
 import ru.agent.features.memory.domain.repository.LongTermMemoryRepository
 import ru.agent.features.memory.domain.repository.ShortTermMemoryRepository
 import ru.agent.features.memory.domain.repository.WorkingMemoryRepository
+import ru.agent.features.profile.domain.repository.UserProfileRepository
 
 /**
  * UseCase для получения полного контекста памяти.
@@ -32,7 +33,7 @@ class GetMemoryContextUseCase(
      */
     suspend operator fun invoke(
         sessionId: String,
-        userId: String = DEFAULT_USER_ID,
+        userId: String = UserProfileRepository.DEFAULT_USER_ID,
         searchQuery: String? = null
     ): MemoryContext {
         logger.d { "Building memory context for session: $sessionId" }
@@ -76,9 +77,5 @@ class GetMemoryContextUseCase(
         ).also {
             logger.i { "Memory context built for session: $sessionId" }
         }
-    }
-
-    companion object {
-        const val DEFAULT_USER_ID = "default"
     }
 }

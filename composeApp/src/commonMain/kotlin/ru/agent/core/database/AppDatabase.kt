@@ -27,7 +27,7 @@ import ru.agent.features.memory.data.local.entity.WorkingMemoryEntity
         UserProfileEntity::class,
         ContextAnchorEntity::class
     ],
-    version = 3
+    version = 4
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {

@@ -16,6 +16,8 @@ package ru.agent.features.memory.domain.model
  *
  * @property id Уникальный идентификатор
  * @property name Имя пользователя
+ * @property role Роль пользователя (developer, manager, designer, etc.)
+ * @property context Дополнительный контекст о пользователе
  * @property preferences Настройки пользователя (JSON)
  * @property interactionStats Статистика взаимодействий
  * @property createdAt Время создания
@@ -24,6 +26,8 @@ package ru.agent.features.memory.domain.model
 data class UserProfile(
     val id: String,
     val name: String = "User",
+    val role: String = "developer",
+    val context: String = "",
     val preferences: UserPreferences = UserPreferences(),
     val interactionStats: InteractionStats = InteractionStats(),
     val createdAt: Long,

@@ -33,7 +33,8 @@ class ChatViewModel internal constructor(
     private val createChatSessionUseCase: CreateChatSessionUseCase,
     private val deleteChatSessionUseCase: DeleteChatSessionUseCase,
     private val addMessageToMemoryUseCase: AddMessageToMemoryUseCase,
-    private val clearShortTermMemoryUseCase: ClearShortTermMemoryUseCase
+    private val clearShortTermMemoryUseCase: ClearShortTermMemoryUseCase,
+    private val createDefaultProfileUseCase: ru.agent.features.profile.domain.usecase.CreateDefaultProfileUseCase
 ) : BaseViewModel<ChatViewState, ChatAction, ChatEvent>(
     initialState = ChatViewState()
 ) {
@@ -54,6 +55,10 @@ class ChatViewModel internal constructor(
             is ChatEvent.ClearHistory -> handleClearHistory(viewEvent.sessionId)
             is ChatEvent.ToggleSidebar -> toggleSidebar()
             is ChatEvent.LoadSession -> loadSession(viewEvent.sessionId)
+            is ChatEvent.OpenProfileSettings -> handleOpenProfileSettings()
+            is ChatEvent.CloseProfileSettings -> handleCloseProfileSettings()
+            is ChatEvent.ProfileUpdated -> handleProfileUpdated()
+            is ChatEvent.ResetProfileToDefaults -> handleResetProfileToDefaults()
         }
     }
 
@@ -69,6 +74,9 @@ class ChatViewModel internal constructor(
         isInitialized = true
 
         logger.i { "Initializing ChatViewModel with sessionId: $sessionId" }
+
+        // Load user profile
+        loadUserProfile()
 
         // Start observing sessions
         loadSessions()
@@ -88,6 +96,22 @@ class ChatViewModel internal constructor(
                         handleSelectSession(mostRecentSession.id)
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Load user profile.
+     */
+    private fun loadUserProfile() {
+        viewModelScope.launch {
+            try {
+                val profile = createDefaultProfileUseCase()
+                viewState = viewState.copy(currentProfile = profile)
+                logger.i { "User profile loaded: ${profile.name}" }
+            } catch (e: Exception) {
+                logger.e(throwable = e) { "Failed to load user profile" }
+                // Не ломаем приложение, профиль загрузится при следующем retry
             }
         }
     }
@@ -344,6 +368,27 @@ class ChatViewModel internal constructor(
                 viewState = viewState.copy(messages = emptyList())
             }
         }
+    }
+
+    private fun handleOpenProfileSettings() {
+        logger.i { "Opening profile settings" }
+        viewState = viewState.copy(isProfileDialogOpen = true)
+    }
+
+    private fun handleCloseProfileSettings() {
+        logger.i { "Closing profile settings" }
+        viewState = viewState.copy(isProfileDialogOpen = false)
+    }
+
+    private fun handleProfileUpdated() {
+        logger.i { "Profile updated, reloading" }
+        loadUserProfile()
+    }
+
+    private fun handleResetProfileToDefaults() {
+        logger.i { "Resetting profile to defaults" }
+        // Просто перезагружаем профиль - сброс происходит в ProfileViewModel
+        loadUserProfile()
     }
 
     override fun onCleared() {

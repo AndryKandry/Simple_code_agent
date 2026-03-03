@@ -115,6 +115,8 @@ object MemoryMapper {
         return UserProfile(
             id = id,
             name = name,
+            role = role,
+            context = context,
             preferences = UserPreferences(
                 preferredLanguage = preferredLanguage,
                 codeStyle = CodeStyle(
@@ -144,6 +146,8 @@ object MemoryMapper {
         return UserProfileEntity(
             id = id,
             name = name,
+            role = role,
+            context = context,
             preferredLanguage = preferences.preferredLanguage,
             codeStyleIndentSize = preferences.codeStyle.indentSize,
             codeStyleUseTabs = preferences.codeStyle.useTabs,

@@ -23,9 +23,10 @@ import ru.agent.features.memory.domain.repository.WorkingMemoryRepository
  * Stores current task data and execution state in Room Database.
  */
 class WorkingMemoryRepositoryImpl(
-    private val workingMemoryDao: WorkingMemoryDao,
-    private val logger: Logger = Logger.withTag("WorkingMemoryRepository")
+    private val workingMemoryDao: WorkingMemoryDao
 ) : WorkingMemoryRepository {
+
+    private val logger = Logger.withTag("WorkingMemoryRepository")
 
     override suspend fun getWorkingMemory(sessionId: String): WorkingMemory? {
         return try {

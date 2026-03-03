@@ -100,6 +100,8 @@ data class MemoryContext(
         return """
             |--- USER PROFILE ---
             |Name: ${profile.name}
+            |Role: ${profile.role}
+            |${if (profile.context.isNotBlank()) "Context: ${profile.context}" else ""}
             |Preferred language: ${prefs.preferredLanguage}
             |Code style: indent=${prefs.codeStyle.indentSize}, maxLineLength=${prefs.codeStyle.maxLineLength}
             |Response verbosity: ${prefs.responseVerbosity}

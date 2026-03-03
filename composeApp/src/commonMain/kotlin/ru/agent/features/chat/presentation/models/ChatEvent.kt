@@ -10,4 +10,8 @@ sealed class ChatEvent {
     data class ClearHistory(val sessionId: String) : ChatEvent()
     object ToggleSidebar : ChatEvent()
     data class LoadSession(val sessionId: String) : ChatEvent()
+    object OpenProfileSettings : ChatEvent()
+    object CloseProfileSettings : ChatEvent()
+    object ProfileUpdated : ChatEvent()
+    object ResetProfileToDefaults : ChatEvent()
 }

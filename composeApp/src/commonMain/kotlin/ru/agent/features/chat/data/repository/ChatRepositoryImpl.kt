@@ -6,6 +6,8 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
 import ru.agent.common.wrappers.ResultWrapper
 import ru.agent.core.handlers.NetworkErrorHandling
 import ru.agent.core.time.currentTimeMillis
@@ -21,6 +23,7 @@ import ru.agent.features.chat.domain.model.SenderType
 import ru.agent.features.chat.domain.optimization.ContextOptimizer
 import ru.agent.features.chat.domain.optimization.OptimizedContext
 import ru.agent.features.chat.domain.repository.ChatRepository
+import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -36,7 +39,7 @@ class ChatRepositoryImpl(
     private val messageDao: MessageDao,
     private val chatSessionDao: ChatSessionDao,
     private val contextOptimizer: ContextOptimizer
-) : ChatRepository {
+) : ChatRepository, KoinComponent {
 
     private val logger = Logger.withTag("ChatRepository")
 
@@ -71,8 +74,24 @@ class ChatRepositoryImpl(
                     "Messages: ${optimizedContext.messages.size}"
                 }
 
-                // Step 5: Prepare API request with optimized messages
-                val messages = optimizedContext.messages.map { msg ->
+                // Step 5: Get memory context for system prompt
+                val getMemoryContextUseCase: GetMemoryContextUseCase = get()
+                val memoryContext = getMemoryContextUseCase(sessionId)
+                val systemPrompt = memoryContext.toSystemPrompt()
+                if (systemPrompt.isNotBlank()) {
+                    logger.d { "Memory context system prompt generated (${systemPrompt.length} chars)" }
+                }
+
+                // Step 6: Prepare API request with optimized messages and system prompt
+                val messages = mutableListOf<MessageDto>()
+
+                // Add system prompt if available
+                if (systemPrompt.isNotBlank()) {
+                    messages.add(MessageDto(role = "system", content = systemPrompt))
+                }
+
+                // Add conversation messages
+                messages.addAll(optimizedContext.messages.map { msg ->
                     MessageDto(
                         role = when (msg.senderType) {
                             SenderType.USER -> "user"
@@ -80,12 +99,12 @@ class ChatRepositoryImpl(
                         },
                         content = msg.content
                     )
-                }
+                })
 
                 val request = ChatRequest(messages = messages)
-                logger.i { "Sending request to DeepSeek API with ${messages.size} messages" }
+                logger.i { "Sending request to DeepSeek API with ${messages.size} messages (system: ${systemPrompt.isNotBlank()})" }
 
-                // Step 6: Call DeepSeek API
+                // Step 7: Call DeepSeek API
                 val response = deepSeekApiClient.sendMessage(request)
                 logger.i { "Received response from DeepSeek API. ID: ${response.id}, choices: ${response.choices.size}" }
 
@@ -100,7 +119,7 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                // Step 7: Create and save assistant message
+                // Step 8: Create and save assistant message
                 val assistantMessage = Message(
                     id = response.id,
                     content = response.choices.first().message.content,
@@ -114,7 +133,7 @@ class ChatRepositoryImpl(
                 // Increment message count for assistant message
                 chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
 
-                // Step 8: Update session title if this was first exchange (2 messages)
+                // Step 9: Update session title if this was first exchange (2 messages)
                 val messageCount = messageDao.getMessageCount(sessionId)
                 if (messageCount == 2) {
                     // This is the first exchange - update title based on user message
