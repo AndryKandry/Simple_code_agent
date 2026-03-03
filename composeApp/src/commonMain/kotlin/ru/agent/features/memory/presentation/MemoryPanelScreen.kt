@@ -21,13 +21,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.chat.domain.model.SenderType
+import ru.agent.features.memory.domain.model.AnchorType
 import ru.agent.features.memory.domain.model.ContextAnchor
 import ru.agent.features.memory.domain.model.ExecutionState
 import ru.agent.features.memory.domain.model.KnowledgeEntry
@@ -69,7 +73,7 @@ fun MemoryPanelScreen(
         // STM Section
         StmSection(
             messages = state.lastMessages.takeLast(5),
-            onClear = { onEvent(MemoryEvent.ClearMemoryPanel(state.sessionId ?: "")) }
+            onClear = { onEvent(MemoryEvent.ClearShortTermMemory(state.sessionId ?: "")) }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -79,7 +83,7 @@ fun MemoryPanelScreen(
             WorkingMemoryCard(
                 taskInfo = state.activeTask,
                 executionState = state.executionState,
-                onCancel = { onEvent(MemoryEvent.ClearMemoryPanel(state.sessionId ?: "")) }
+                onCancel = { onEvent(MemoryEvent.ClearShortTermMemory(state.sessionId ?: "")) }
             )
             Spacer(modifier = Modifier.height(16.dp))
         }
@@ -90,6 +94,13 @@ fun MemoryPanelScreen(
             searchQuery = state.searchQuery,
             onSearchQueryChange = { onEvent(MemoryEvent.SearchKnowledge(it)) },
             onAddEntry = { entry -> onEvent(MemoryEvent.SaveToKnowledge(entry)) }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Context Anchors Section
+        ContextAnchorsSection(
+            anchors = state.activeAnchors
         )
     }
 }
@@ -288,6 +299,9 @@ private fun KnowledgeBaseSection(
     onSearchQueryChange: (String) -> Unit,
     onAddEntry: (KnowledgeEntry) -> Unit
 ) {
+    // Use TextFieldValue to preserve cursor position
+    val textFieldValue = remember { mutableStateOf(TextFieldValue(searchQuery)) }
+
     Card(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -299,8 +313,11 @@ private fun KnowledgeBaseSection(
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
+                value = textFieldValue.value,
+                onValueChange = { newValue ->
+                    textFieldValue.value = newValue
+                    onSearchQueryChange(newValue.text)
+                },
                 label = { Text("Search knowledge...") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -312,7 +329,174 @@ private fun KnowledgeBaseSection(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.height(150.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(
+                        items = entries,
+                        key = { it.id }
+                    ) { entry ->
+                        KnowledgeEntryItem(entry = entry)
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun KnowledgeEntryItem(entry: KnowledgeEntry) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = entry.key,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = entry.category.name,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = entry.value.take(80) + if (entry.value.length > 80) "..." else "",
+            style = MaterialTheme.typography.bodySmall
+        )
+        if (entry.tags.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                entry.tags.take(3).forEach { tag ->
+                    Text(
+                        text = "#$tag",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContextAnchorsSection(
+    anchors: List<ContextAnchor>
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Context Anchors",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            if (anchors.isEmpty()) {
+                Text(
+                    text = "No active anchors",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.height(200.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = anchors.sortedByDescending { it.priority },
+                        key = { it.id }
+                    ) { anchor ->
+                        AnchorItem(anchor = anchor)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnchorItem(anchor: ContextAnchor) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                when (anchor.type) {
+                    AnchorType.FILE -> MaterialTheme.colorScheme.primaryContainer
+                    AnchorType.DIRECTORY -> MaterialTheme.colorScheme.secondaryContainer
+                    AnchorType.TOPIC -> MaterialTheme.colorScheme.tertiaryContainer
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                }
+            )
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = anchor.name,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = anchor.type.name,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.weight(0.5f))
+            Text(
+                text = "P:${anchor.priority}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        when (anchor.type) {
+            AnchorType.FILE, AnchorType.DIRECTORY -> {
+                anchor.path?.let { path ->
+                    Text(
+                        text = path,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            AnchorType.TOPIC -> {
+                anchor.topic?.let { topic ->
+                    Text(
+                        text = topic,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            else -> {}
+        }
+        anchor.context?.let { context ->
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = context,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }

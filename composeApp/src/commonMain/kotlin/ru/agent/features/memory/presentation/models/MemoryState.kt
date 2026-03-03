@@ -39,11 +39,12 @@ sealed class MemoryEvent {
     data object ToggleMemoryPanelVisibility : MemoryEvent()
 
     /**
-     * Очистить панель памяти для конкретной сессии.
+     * Очистить только краткосрочную память (STM) для сессии.
+     * История чата в базе данных НЕ удаляется.
      *
      * @property sessionId ID сессии
      */
-    data class ClearMemoryPanel(val sessionId: String) : MemoryEvent()
+    data class ClearShortTermMemory(val sessionId: String) : MemoryEvent()
 
     /**
      * Поиск по базе знаний.

@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +34,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
 import ru.agent.design.bars.BaseTopAppBar
 import ru.agent.features.chat.domain.model.ChatSession
@@ -43,6 +46,7 @@ import ru.agent.features.chat.presentation.components.MessageList
 import ru.agent.features.chat.presentation.models.ChatAction
 import ru.agent.features.chat.presentation.models.ChatEvent
 import ru.agent.features.chat.presentation.theme.ChatColors
+import ru.agent.features.memory.presentation.components.MemoryPanelScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,6 +95,8 @@ fun ChatScreen(
         isSidebarOpen = viewState.isSidebarOpen,
         sessions = viewState.sessions,
         currentSessionId = viewState.currentSessionId,
+        isMemoryPanelOpen = viewState.isMemoryPanelOpen,
+        memoryState = viewState.memoryState,
         snackbarHostState = snackbarHostState,
         onEvent = { event -> viewModel.obtainEvent(event) },
         modifier = Modifier
@@ -125,6 +131,8 @@ private fun ChatContent(
     isSidebarOpen: Boolean,
     sessions: List<ChatSession>,
     currentSessionId: String?,
+    isMemoryPanelOpen: Boolean,
+    memoryState: ru.agent.features.memory.presentation.models.MemoryState,
     snackbarHostState: SnackbarHostState,
     onEvent: (ChatEvent) -> Unit,
     modifier: Modifier = Modifier
@@ -138,7 +146,7 @@ private fun ChatContent(
                 )
             )
     ) {
-        // Sidebar
+        // Sidebar (left panel)
         ChatSidebar(
             sessions = sessions,
             currentSessionId = currentSessionId,
@@ -147,7 +155,7 @@ private fun ChatContent(
             modifier = Modifier.fillMaxHeight()
         )
 
-        // Main chat area
+        // Main chat area (center)
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -171,7 +179,18 @@ private fun ChatContent(
                                     )
                                 }
                             },
-                            actions = {}
+                            actions = {
+                                // Memory Panel toggle button
+                                IconButton(
+                                    onClick = { onEvent(ChatEvent.ToggleMemoryPanel) }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = "Toggle Memory Panel",
+                                        tint = if (isMemoryPanelOpen) Color.Cyan else Color.White
+                                    )
+                                }
+                            }
                         )
                         LoadingIndicator(isLoading = isLoading)
                     }
@@ -205,6 +224,25 @@ private fun ChatContent(
                         isEnabled = !isLoading
                     )
                 }
+            }
+        }
+
+        // Memory Panel (right panel)
+        if (isMemoryPanelOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(320.dp)
+                    .background(
+                        color = Color(0xFF1E1E2E).copy(alpha = 0.95f)
+                    )
+            ) {
+                MemoryPanelScreen(
+                    state = memoryState,
+                    onEvent = { memoryEvent ->
+                        onEvent(ChatEvent.MemoryEventWrapper(memoryEvent))
+                    }
+                )
             }
         }
     }

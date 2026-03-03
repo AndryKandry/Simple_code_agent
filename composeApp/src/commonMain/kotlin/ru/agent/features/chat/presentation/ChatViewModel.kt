@@ -22,6 +22,11 @@ import ru.agent.features.chat.presentation.models.ChatEvent
 import ru.agent.features.chat.presentation.models.ChatViewState
 import ru.agent.features.memory.domain.usecase.AddMessageToMemoryUseCase
 import ru.agent.features.memory.domain.usecase.ClearShortTermMemoryUseCase
+import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
+import ru.agent.features.memory.domain.usecase.InitializeDemoMemoryUseCase
+import ru.agent.features.memory.domain.usecase.SaveToLongTermMemoryUseCase
+import ru.agent.features.memory.domain.usecase.SearchKnowledgeBaseUseCase
+import ru.agent.features.memory.presentation.models.MemoryState
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -33,7 +38,11 @@ class ChatViewModel internal constructor(
     private val createChatSessionUseCase: CreateChatSessionUseCase,
     private val deleteChatSessionUseCase: DeleteChatSessionUseCase,
     private val addMessageToMemoryUseCase: AddMessageToMemoryUseCase,
-    private val clearShortTermMemoryUseCase: ClearShortTermMemoryUseCase
+    private val clearShortTermMemoryUseCase: ClearShortTermMemoryUseCase,
+    private val getMemoryContextUseCase: GetMemoryContextUseCase,
+    private val searchKnowledgeBaseUseCase: SearchKnowledgeBaseUseCase,
+    private val saveToLongTermMemoryUseCase: SaveToLongTermMemoryUseCase,
+    private val initializeDemoMemoryUseCase: InitializeDemoMemoryUseCase
 ) : BaseViewModel<ChatViewState, ChatAction, ChatEvent>(
     initialState = ChatViewState()
 ) {
@@ -41,6 +50,7 @@ class ChatViewModel internal constructor(
     private val logger = Logger.withTag("ChatViewModel")
     private var sessionsJob: Job? = null
     private var isInitialized = false
+    private var isMemoryInitialized = false
 
     override fun obtainEvent(viewEvent: ChatEvent) {
         logger.d { "Event received: $viewEvent" }
@@ -54,6 +64,10 @@ class ChatViewModel internal constructor(
             is ChatEvent.ClearHistory -> handleClearHistory(viewEvent.sessionId)
             is ChatEvent.ToggleSidebar -> toggleSidebar()
             is ChatEvent.LoadSession -> loadSession(viewEvent.sessionId)
+            is ChatEvent.ToggleMemoryPanel -> toggleMemoryPanel()
+            is ChatEvent.MemoryEventWrapper -> handleMemoryEvent(viewEvent.memoryEvent)
+            is ChatEvent.SearchKnowledge -> handleSearchKnowledge(viewEvent.query)
+            is ChatEvent.SaveToKnowledge -> handleSaveToKnowledge(viewEvent.entry)
         }
     }
 
@@ -69,6 +83,19 @@ class ChatViewModel internal constructor(
         isInitialized = true
 
         logger.i { "Initializing ChatViewModel with sessionId: $sessionId" }
+
+        // Initialize demo memory data on first run
+        if (!isMemoryInitialized) {
+            isMemoryInitialized = true
+            viewModelScope.launch {
+                try {
+                    initializeDemoMemoryUseCase()
+                    logger.i { "Demo memory data initialized successfully" }
+                } catch (e: Exception) {
+                    logger.e { "Failed to initialize demo memory: ${e.message}" }
+                }
+            }
+        }
 
         // Start observing sessions
         loadSessions()
@@ -308,6 +335,11 @@ class ChatViewModel internal constructor(
                     updatedMessages.lastOrNull()?.let { assistantMessage ->
                         addMessageToMemoryUseCase(sessionId, assistantMessage)
                     }
+
+                    // Update memory state if panel is open
+                    if (viewState.isMemoryPanelOpen) {
+                        updateMemoryState(sessionId)
+                    }
                 }
                 is ResultWrapper.Error -> {
                     logger.e { "Failed to send message: ${result.message}" }
@@ -342,7 +374,121 @@ class ChatViewModel internal constructor(
             clearShortTermMemoryUseCase(sessionId)
             if (viewState.currentSessionId == sessionId) {
                 viewState = viewState.copy(messages = emptyList())
+                updateMemoryState(sessionId)
             }
+        }
+    }
+
+    /**
+     * Toggle memory panel visibility.
+     */
+    private fun toggleMemoryPanel() {
+        val isOpen = !viewState.isMemoryPanelOpen
+        viewState = viewState.copy(isMemoryPanelOpen = isOpen)
+
+        // Update memory state when panel opens
+        if (isOpen && viewState.currentSessionId != null) {
+            viewModelScope.launch {
+                updateMemoryState(viewState.currentSessionId!!)
+            }
+        }
+    }
+
+    /**
+     * Handle memory events from MemoryPanelScreen.
+     */
+    private fun handleMemoryEvent(memoryEvent: ru.agent.features.memory.presentation.models.MemoryEvent) {
+        when (memoryEvent) {
+            is ru.agent.features.memory.presentation.models.MemoryEvent.ToggleMemoryPanelVisibility -> {
+                toggleMemoryPanel()
+            }
+            is ru.agent.features.memory.presentation.models.MemoryEvent.ClearShortTermMemory -> {
+                handleClearStmOnly(memoryEvent.sessionId)
+            }
+            is ru.agent.features.memory.presentation.models.MemoryEvent.SearchKnowledge -> {
+                handleSearchKnowledge(memoryEvent.query)
+            }
+            is ru.agent.features.memory.presentation.models.MemoryEvent.SaveToKnowledge -> {
+                handleSaveToKnowledge(memoryEvent.entry)
+            }
+        }
+    }
+
+    /**
+     * Clear only STM (Short-term Memory) without clearing chat history.
+     */
+    private fun handleClearStmOnly(sessionId: String) {
+        logger.i { "Clearing STM only for session: $sessionId" }
+        viewModelScope.launch {
+            clearShortTermMemoryUseCase(sessionId)
+            if (viewState.currentSessionId == sessionId) {
+                updateMemoryState(sessionId)
+            }
+        }
+    }
+
+    /**
+     * Search in knowledge base.
+     */
+    private fun handleSearchKnowledge(query: String) {
+        if (query.isBlank()) {
+            viewState = viewState.copy(
+                memoryState = viewState.memoryState.copy(
+                    searchQuery = "",
+                    searchResults = emptyList()
+                )
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            val results = searchKnowledgeBaseUseCase.quickSearch(query)
+            viewState = viewState.copy(
+                memoryState = viewState.memoryState.copy(
+                    searchQuery = query,
+                    searchResults = results
+                )
+            )
+        }
+    }
+
+    /**
+     * Save entry to knowledge base.
+     */
+    private fun handleSaveToKnowledge(entry: ru.agent.features.memory.domain.model.KnowledgeEntry) {
+        viewModelScope.launch {
+            saveToLongTermMemoryUseCase.saveEntry(entry)
+            // Refresh memory state if panel is open
+            if (viewState.isMemoryPanelOpen && viewState.currentSessionId != null) {
+                updateMemoryState(viewState.currentSessionId!!)
+            }
+        }
+    }
+
+    /**
+     * Update memory state for current session.
+     */
+    private suspend fun updateMemoryState(sessionId: String) {
+        try {
+            val memoryContext = getMemoryContextUseCase(sessionId)
+
+            viewState = viewState.copy(
+                memoryState = MemoryState(
+                    isMemoryPanelOpen = viewState.isMemoryPanelOpen,
+                    sessionId = sessionId,
+                    lastMessages = memoryContext.getMessages(),
+                    activeTask = memoryContext.workingMemory?.taskInfo,
+                    executionState = memoryContext.workingMemory?.executionState
+                        ?: ru.agent.features.memory.domain.model.ExecutionState.IDLE,
+                    searchResults = viewState.memoryState.searchResults,
+                    activeAnchors = memoryContext.activeAnchors,
+                    searchQuery = viewState.memoryState.searchQuery
+                )
+            )
+
+            logger.d { "Memory state updated for session: $sessionId" }
+        } catch (e: Exception) {
+            logger.e { "Failed to update memory state: ${e.message}" }
         }
     }
 

@@ -1,7 +1,5 @@
 package ru.agent.features.memory.di
 
-import org.koin.core.module.dsl.singleOf
-import org.koin.dsl.bind
 import org.koin.dsl.module
 import ru.agent.core.database.AppDatabase
 import ru.agent.features.memory.data.local.dao.ContextAnchorDao
@@ -18,6 +16,7 @@ import ru.agent.features.memory.domain.repository.WorkingMemoryRepository
 import ru.agent.features.memory.domain.usecase.AddMessageToMemoryUseCase
 import ru.agent.features.memory.domain.usecase.ClearShortTermMemoryUseCase
 import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
+import ru.agent.features.memory.domain.usecase.InitializeDemoMemoryUseCase
 import ru.agent.features.memory.domain.usecase.SaveToLongTermMemoryUseCase
 import ru.agent.features.memory.domain.usecase.SearchKnowledgeBaseUseCase
 import ru.agent.features.memory.domain.usecase.UpdateWorkingMemoryUseCase
@@ -32,11 +31,11 @@ val featureMemoryModule = module {
 
     // === Repositories ===
 
-    singleOf(::ShortTermMemoryRepositoryImpl) bind ShortTermMemoryRepository::class
+    single<ShortTermMemoryRepository> { ShortTermMemoryRepositoryImpl() }
 
-    singleOf(::WorkingMemoryRepositoryImpl) bind WorkingMemoryRepository::class
+    single<WorkingMemoryRepository> { WorkingMemoryRepositoryImpl(get()) }
 
-    singleOf(::LongTermMemoryRepositoryImpl) bind LongTermMemoryRepository::class
+    single<LongTermMemoryRepository> { LongTermMemoryRepositoryImpl(get(), get(), get()) }
 
     // === Optimizer ===
 
@@ -44,7 +43,7 @@ val featureMemoryModule = module {
 
     // === Use Cases ===
 
-    factory { params ->
+    factory {
         GetMemoryContextUseCase(
             shortTermMemoryRepository = get(),
             workingMemoryRepository = get(),
@@ -79,6 +78,12 @@ val featureMemoryModule = module {
     factory {
         SearchKnowledgeBaseUseCase(
             longTermMemoryRepository = get()
+        )
+    }
+
+    factory {
+        InitializeDemoMemoryUseCase(
+            longTermMemoryRepository = get<LongTermMemoryRepository>()
         )
     }
 }
