@@ -20,6 +20,8 @@ import ru.agent.features.chat.domain.usecase.SendMessageUseCase
 import ru.agent.features.chat.presentation.models.ChatAction
 import ru.agent.features.chat.presentation.models.ChatEvent
 import ru.agent.features.chat.presentation.models.ChatViewState
+import ru.agent.features.memory.domain.usecase.AddMessageToMemoryUseCase
+import ru.agent.features.memory.domain.usecase.ClearShortTermMemoryUseCase
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -29,7 +31,9 @@ class ChatViewModel internal constructor(
     private val clearChatHistoryUseCase: ClearChatHistoryUseCase,
     private val getAllChatSessionsUseCase: GetAllChatSessionsUseCase,
     private val createChatSessionUseCase: CreateChatSessionUseCase,
-    private val deleteChatSessionUseCase: DeleteChatSessionUseCase
+    private val deleteChatSessionUseCase: DeleteChatSessionUseCase,
+    private val addMessageToMemoryUseCase: AddMessageToMemoryUseCase,
+    private val clearShortTermMemoryUseCase: ClearShortTermMemoryUseCase
 ) : BaseViewModel<ChatViewState, ChatAction, ChatEvent>(
     initialState = ChatViewState()
 ) {
@@ -208,6 +212,9 @@ class ChatViewModel internal constructor(
                 is ResultWrapper.Success -> {
                     logger.i { "Session deleted: $sessionId" }
 
+                    // Clear STM for deleted session
+                    clearShortTermMemoryUseCase(sessionId)
+
                     // If deleted session was current, switch to another
                     if (viewState.currentSessionId == sessionId) {
                         val remainingSessions = viewState.sessions.filter { it.id != sessionId }
@@ -283,17 +290,24 @@ class ChatViewModel internal constructor(
         viewAction = ChatAction.ScrollToBottom
 
         viewModelScope.launch {
+            // Add user message to STM
+            addMessageToMemoryUseCase(sessionId, optimisticMessage)
+
             when (val result = sendMessageUseCase(sessionId, text)) {
                 is ResultWrapper.Success -> {
                     logger.i { "Message sent successfully" }
-                    // Replace optimistic message list with actual data from repository
-                    // (this will include both user message and assistant response)
+                    val updatedMessages = getChatHistoryUseCase(sessionId)
                     viewState = viewState.copy(
-                        messages = getChatHistoryUseCase(sessionId),
+                        messages = updatedMessages,
                         isLoading = false,
                         error = null
                     )
                     viewAction = ChatAction.ScrollToBottom
+
+                    // Add assistant response to STM (last message in the list)
+                    updatedMessages.lastOrNull()?.let { assistantMessage ->
+                        addMessageToMemoryUseCase(sessionId, assistantMessage)
+                    }
                 }
                 is ResultWrapper.Error -> {
                     logger.e { "Failed to send message: ${result.message}" }
@@ -325,6 +339,7 @@ class ChatViewModel internal constructor(
         logger.i { "Clearing chat history for session: $sessionId" }
         viewModelScope.launch {
             clearChatHistoryUseCase(sessionId)
+            clearShortTermMemoryUseCase(sessionId)
             if (viewState.currentSessionId == sessionId) {
                 viewState = viewState.copy(messages = emptyList())
             }

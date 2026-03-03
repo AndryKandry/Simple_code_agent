@@ -169,6 +169,18 @@ dependencies {
     add("kspJvm", libs.room.compiler)
 }
 
+// Workaround for Room KMP issue: Room generates actual in metadata/commonMain which conflicts with expect
+// Delete the generated actual file from metadata/commonMain after KSP processing
+tasks.matching { it.name.contains("ksp", ignoreCase = true) }.configureEach {
+    doLast {
+        val generatedFile = file("build/generated/ksp/metadata/commonMain/kotlin/ru/agent/core/database/AppDatabaseConstructor.kt")
+        if (generatedFile.exists()) {
+            generatedFile.delete()
+            logger.lifecycle("Deleted Room-generated actual from metadata/commonMain to avoid conflict with expect")
+        }
+    }
+}
+
 room {
     schemaDirectory("$projectDir/schemas")
 }

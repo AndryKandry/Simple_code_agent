@@ -3,6 +3,7 @@ package ru.agent.core.di
 import org.koin.dsl.module
 import ru.agent.features.chat.di.featureChatModule
 import ru.agent.features.main.di.featureMainModule
+import ru.agent.features.memory.di.featureMemoryModule
 
 val featuresModule = module {
     includes(
@@ -13,5 +14,8 @@ val featuresModule = module {
 
         // Chat
         featureChatModule,
+
+        // Memory
+        featureMemoryModule,
     )
 }
