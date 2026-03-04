@@ -5,6 +5,7 @@ import ru.agent.features.chat.di.featureChatModule
 import ru.agent.features.main.di.featureMainModule
 import ru.agent.features.memory.di.featureMemoryModule
 import ru.agent.features.profile.di.featureProfileModule
+import ru.agent.features.task.di.featureTaskModule
 
 val featuresModule = module {
     includes(
@@ -21,5 +22,8 @@ val featuresModule = module {
 
         // Profile
         featureProfileModule,
+
+        // Task
+        featureTaskModule,
     )
 }

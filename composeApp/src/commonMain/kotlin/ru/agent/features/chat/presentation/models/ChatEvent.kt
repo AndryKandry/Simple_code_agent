@@ -14,4 +14,17 @@ sealed class ChatEvent {
     object CloseProfileSettings : ChatEvent()
     object ProfileUpdated : ChatEvent()
     object ResetProfileToDefaults : ChatEvent()
+
+    // Task events
+    object PauseTask : ChatEvent()
+    object ResumeTask : ChatEvent()
+    object CancelTask : ChatEvent()
+    object ToggleTaskPanel : ChatEvent()
+    object AdvanceTaskStage : ChatEvent()
+
+    // Dialog-based task approval events
+    object ApprovePlan : ChatEvent()      // Approve plan in PLANNING -> EXECUTION
+    data class RejectPlan(val feedback: String) : ChatEvent()  // Reject plan with feedback
+    object ApproveResult : ChatEvent()    // Approve result in VALIDATION -> DONE
+    data class RejectResult(val feedback: String) : ChatEvent() // Reject result with feedback -> EXECUTION (retry)
 }

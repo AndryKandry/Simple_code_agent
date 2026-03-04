@@ -16,6 +16,8 @@ import ru.agent.features.memory.data.local.entity.ContextAnchorEntity
 import ru.agent.features.memory.data.local.entity.KnowledgeEntryEntity
 import ru.agent.features.memory.data.local.entity.UserProfileEntity
 import ru.agent.features.memory.data.local.entity.WorkingMemoryEntity
+import ru.agent.features.task.data.local.dao.TaskStateDao
+import ru.agent.features.task.data.local.entity.TaskStateEntity
 
 @Database(
     entities = [
@@ -25,9 +27,10 @@ import ru.agent.features.memory.data.local.entity.WorkingMemoryEntity
         WorkingMemoryEntity::class,
         KnowledgeEntryEntity::class,
         UserProfileEntity::class,
-        ContextAnchorEntity::class
+        ContextAnchorEntity::class,
+        TaskStateEntity::class
     ],
-    version = 4
+    version = 6
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +41,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun getKnowledgeEntryDao(): KnowledgeEntryDao
     abstract fun getUserProfileDao(): UserProfileDao
     abstract fun getContextAnchorDao(): ContextAnchorDao
+    abstract fun getTaskStateDao(): TaskStateDao
 }
 
 // The Room compiler generates the `actual` implementations.

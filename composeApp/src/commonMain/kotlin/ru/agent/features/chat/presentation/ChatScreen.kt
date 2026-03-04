@@ -31,6 +31,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
 import ru.agent.design.bars.BaseTopAppBar
 import ru.agent.features.chat.domain.model.ChatSession
@@ -44,6 +45,7 @@ import ru.agent.features.chat.presentation.models.ChatEvent
 import ru.agent.features.chat.presentation.theme.ChatColors
 import ru.agent.features.profile.presentation.ProfileDialog
 import ru.agent.features.profile.presentation.ProfileIndicator
+import ru.agent.features.task.presentation.components.TaskProgressPanel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +68,10 @@ fun ChatScreen(
         when (viewAction) {
             is ChatAction.ShowError -> {
                 snackbarHostState.showSnackbar((viewAction as ChatAction.ShowError).message)
+                viewModel.clearAction()
+            }
+            is ChatAction.ShowSuccess -> {
+                snackbarHostState.showSnackbar((viewAction as ChatAction.ShowSuccess).message)
                 viewModel.clearAction()
             }
             is ChatAction.ScrollToBottom -> {
@@ -104,6 +110,8 @@ fun ChatScreen(
         sessions = viewState.sessions,
         currentSessionId = viewState.currentSessionId,
         currentProfile = viewState.currentProfile,
+        taskState = viewState.taskState,
+        isTaskPanelVisible = viewState.isTaskPanelVisible,
         snackbarHostState = snackbarHostState,
         onEvent = { event -> viewModel.obtainEvent(event) },
         modifier = Modifier
@@ -117,9 +125,18 @@ fun ChatScreen(
                         }
                         true
                     }
-                    // Ctrl+P to open profile settings
+                    // Ctrl+P for pause/resume task or open profile if no task
                     keyEvent.isCtrlPressed && keyEvent.key == Key.P -> {
-                        viewModel.obtainEvent(ChatEvent.OpenProfileSettings)
+                        val task = viewState.taskState
+                        if (task != null && !task.isCompleted()) {
+                            if (task.isPaused) {
+                                viewModel.obtainEvent(ChatEvent.ResumeTask)
+                            } else {
+                                viewModel.obtainEvent(ChatEvent.PauseTask)
+                            }
+                        } else {
+                            viewModel.obtainEvent(ChatEvent.OpenProfileSettings)
+                        }
                         true
                     }
                     // Escape to clear input
@@ -144,6 +161,8 @@ private fun ChatContent(
     sessions: List<ChatSession>,
     currentSessionId: String?,
     currentProfile: ru.agent.features.memory.domain.model.UserProfile?,
+    taskState: ru.agent.features.task.domain.model.TaskState?,
+    isTaskPanelVisible: Boolean,
     snackbarHostState: SnackbarHostState,
     onEvent: (ChatEvent) -> Unit,
     modifier: Modifier = Modifier
@@ -218,6 +237,15 @@ private fun ChatContent(
                         .fillMaxSize()
                         .padding(paddingValues)
                 ) {
+                    // Task Progress Panel
+                    if (isTaskPanelVisible && taskState != null) {
+                        TaskProgressPanel(
+                            taskState = taskState,
+                            onCancelClick = { onEvent(ChatEvent.CancelTask) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+
                     MessageList(
                         messages = messages,
                         modifier = Modifier

@@ -160,6 +160,84 @@ class ChatRepositoryImpl(
         }
     }
 
+    /**
+     * Send a message to LLM without saving to chat history.
+     * Used for internal operations like planning and validation.
+     */
+    override suspend fun sendSilentMessage(sessionId: String, message: String): ResultWrapper<String> {
+        logger.i { "sendSilentMessage called for session: $sessionId" }
+
+        return withContext(Dispatchers.IO) {
+            try {
+                // Get optimized context (without adding the silent message)
+                val optimizedContext = getOptimizedContext(sessionId)
+
+                // Get memory context for system prompt
+                val getMemoryContextUseCase: GetMemoryContextUseCase = get()
+                val memoryContext = getMemoryContextUseCase(sessionId)
+                val systemPrompt = memoryContext.toSystemPrompt()
+
+                // Prepare API request
+                val messages = mutableListOf<MessageDto>()
+
+                // Add system prompt if available
+                if (systemPrompt.isNotBlank()) {
+                    messages.add(MessageDto(role = "system", content = systemPrompt))
+                }
+
+                // Add conversation messages
+                messages.addAll(optimizedContext.messages.map { msg ->
+                    MessageDto(
+                        role = when (msg.senderType) {
+                            SenderType.USER -> "user"
+                            SenderType.ASSISTANT -> "assistant"
+                        },
+                        content = msg.content
+                    )
+                })
+
+                // Add the silent message
+                messages.add(MessageDto(role = "user", content = message))
+
+                val request = ChatRequest(messages = messages)
+                logger.i { "Sending silent request to DeepSeek API with ${messages.size} messages" }
+
+                // Call API
+                val response = deepSeekApiClient.sendMessage(request)
+
+                if (response.choices.isEmpty()) {
+                    logger.e { "Empty response from API" }
+                    return@withContext ResultWrapper.Error(
+                        throwable = IllegalStateException("Empty response from API"),
+                        message = "Received empty response from DeepSeek API"
+                    )
+                }
+
+                val responseContent = response.choices.first().message.content
+                logger.i { "Silent request completed successfully" }
+                ResultWrapper.Success(responseContent)
+
+            } catch (e: Exception) {
+                logger.e(throwable = e) { "Error in silent message to DeepSeek API" }
+                networkErrorHandling.transformToResultWrapper(e)
+            }
+        }
+    }
+
+    /**
+     * Save a message directly to chat history without sending to LLM.
+     */
+    override suspend fun saveMessage(sessionId: String, message: Message) {
+        withContext(Dispatchers.IO) {
+            logger.d { "saveMessage: Saving message to session $sessionId" }
+            messageDao.insertMessage(message.toEntity(sessionId))
+
+            // Increment message count in session
+            chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
+            logger.d { "Message saved with ID: ${message.id}" }
+        }
+    }
+
     override suspend fun getChatHistory(sessionId: String): List<Message> {
         return withContext(Dispatchers.IO) {
             val messages = messageDao.getMessagesForSession(sessionId).toDomain()
