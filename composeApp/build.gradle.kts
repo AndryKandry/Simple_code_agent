@@ -102,6 +102,13 @@ kotlin {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.swing)
             implementation(libs.ktor.client.okhttp)
+
+            // CLI dependencies
+            implementation(libs.clikt.core)
+            implementation(libs.mordant.core)
+            implementation(libs.jline.reader)
+            implementation(libs.jline.terminal)
+            implementation(libs.jline.terminal.jna)
         }
 
         iosMain.dependencies {
@@ -139,7 +146,7 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "Default"
+            packageName = "SimpleCodeAgent"
             packageVersion = "1.0.0"
 
             linux {
@@ -150,7 +157,7 @@ compose.desktop {
             }
             macOS {
                 iconFile.set(project.file("desktopAppIcons/MacosIcon.icns"))
-                bundleID = "ru.defkmp.desktopApp"
+                bundleID = "ru.agent.cli"
             }
         }
     }

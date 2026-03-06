@@ -32,6 +32,11 @@ coil-core = "2.7.0"
 coil-compose = "2.7.0"
 coil-multiplatform = "3.3.0"
 
+# CLI dependencies
+clikt = "4.4.0"
+mordant = "2.2.0"
+jline = "3.25.1"
+
 [libraries]
 androidx-activityCompose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
 androidx-uitest-testManifest = { module = "androidx.compose.ui:ui-test-manifest", version.ref = "androidx-uiTest" }
@@ -80,6 +85,13 @@ kermit-logging = { module = "co.touchlab:kermit", version.ref = "kermit" }
 coil-core = { module = "io.coil-kt:coil", version.ref = "coil-core" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil-compose" }
 coil-multiplatform-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil-multiplatform" }
+
+# CLI libraries
+clikt-core = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
+mordant-core = { module = "com.github.ajalt.mordant:mordant", version.ref = "mordant" }
+jline-reader = { module = "org.jline:jline-reader", version.ref = "jline" }
+jline-terminal = { module = "org.jline:jline-terminal", version.ref = "jline" }
+jline-terminal-jna = { module = "org.jline:jline-terminal-jna", version.ref = "jline" }
 
 [plugins]
 
