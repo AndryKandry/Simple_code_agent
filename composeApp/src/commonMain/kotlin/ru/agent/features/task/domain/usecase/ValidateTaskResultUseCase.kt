@@ -47,7 +47,8 @@ class ValidateTaskResultUseCase(
 
         // Update task with validation info
         val updatedTask = taskState.copy(
-            expectedAction = validationFeedback
+            expectedAction = validationFeedback,
+            validationResult = validationResponse
         )
 
         // Save updated task

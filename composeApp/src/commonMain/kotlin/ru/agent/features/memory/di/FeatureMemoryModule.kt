@@ -48,7 +48,8 @@ val featureMemoryModule = module {
         GetMemoryContextUseCase(
             shortTermMemoryRepository = get(),
             workingMemoryRepository = get(),
-            longTermMemoryRepository = get()
+            longTermMemoryRepository = get(),
+            invariantRepository = get()
         )
     }
 

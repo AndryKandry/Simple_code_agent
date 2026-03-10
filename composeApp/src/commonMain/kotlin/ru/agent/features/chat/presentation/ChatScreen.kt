@@ -74,6 +74,15 @@ fun ChatScreen(
                 snackbarHostState.showSnackbar((viewAction as ChatAction.ShowSuccess).message)
                 viewModel.clearAction()
             }
+            is ChatAction.ShowTransitionWarnings -> {
+                // Display warnings to the user
+                val warnings = (viewAction as ChatAction.ShowTransitionWarnings).warnings
+                if (warnings.isNotEmpty()) {
+                    val warningMessages = warnings.joinToString("\n") { "⚠ ${it.userFriendlyMessage}" }
+                    snackbarHostState.showSnackbar("Warnings:\n$warningMessages")
+                }
+                viewModel.clearAction()
+            }
             is ChatAction.ScrollToBottom -> {
                 // Scroll is handled in MessageList
                 viewModel.clearAction()

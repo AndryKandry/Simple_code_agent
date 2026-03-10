@@ -71,6 +71,7 @@ data class ShortTermMemory(
             val role = when (message.senderType) {
                 ru.agent.features.chat.domain.model.SenderType.USER -> "User"
                 ru.agent.features.chat.domain.model.SenderType.ASSISTANT -> "Assistant"
+                ru.agent.features.chat.domain.model.SenderType.SYSTEM -> "System"
             }
             "[$role]: ${message.content}"
         }

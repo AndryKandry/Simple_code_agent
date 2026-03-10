@@ -24,8 +24,9 @@ class CreateTaskFromMessageUseCase(
         // Check if there's already an active task for this session
         val activeTask = repository.getActiveTaskForSession(sessionId)
         if (activeTask != null && !activeTask.isCompleted()) {
-            // Don't create a new task if there's an active one
-            return null
+            // Clean up stale incomplete task from previous session
+            repository.deleteTaskState(activeTask.taskId)
+            // Continue to create a new task
         }
 
         // Analyze the message to determine if it's a task request

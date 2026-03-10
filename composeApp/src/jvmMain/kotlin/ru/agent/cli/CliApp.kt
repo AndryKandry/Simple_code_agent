@@ -13,6 +13,7 @@ import ru.agent.cli.commands.MemoryCommand
 import ru.agent.cli.commands.ProfileCommand
 import ru.agent.cli.commands.ShellCommand
 import ru.agent.cli.commands.TaskCommand
+import ru.agent.cli.commands.invariant.InvariantCommand
 import ru.agent.cli.repl.ReplController
 
 /**
@@ -74,7 +75,8 @@ class CliApp : CliktCommand(
                 ProfileCommand(),
                 MemoryCommand(),
                 TaskCommand(),
-                ShellCommand()
+                ShellCommand(),
+                InvariantCommand()
             )
         }
     }

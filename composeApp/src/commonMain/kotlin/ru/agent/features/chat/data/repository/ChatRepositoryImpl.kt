@@ -6,8 +6,6 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.get
 import ru.agent.common.wrappers.ResultWrapper
 import ru.agent.core.handlers.NetworkErrorHandling
 import ru.agent.core.time.currentTimeMillis
@@ -24,6 +22,10 @@ import ru.agent.features.chat.domain.model.SenderType
 import ru.agent.features.chat.domain.optimization.ContextOptimizer
 import ru.agent.features.chat.domain.optimization.OptimizedContext
 import ru.agent.features.chat.domain.repository.ChatRepository
+import ru.agent.features.invariant.domain.exception.InvariantViolationException
+import ru.agent.features.invariant.domain.model.CheckType
+import ru.agent.features.invariant.domain.service.ValidationService
+import ru.agent.features.invariant.domain.usecase.ValidateInvariantViolationUseCase
 import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -39,8 +41,11 @@ class ChatRepositoryImpl(
     private val networkErrorHandling: NetworkErrorHandling,
     private val messageDao: MessageDao,
     private val chatSessionDao: ChatSessionDao,
-    private val contextOptimizer: ContextOptimizer
-) : ChatRepository, KoinComponent {
+    private val contextOptimizer: ContextOptimizer,
+    private val validateInvariantViolationUseCase: ValidateInvariantViolationUseCase,
+    private val getMemoryContextUseCase: GetMemoryContextUseCase,
+    private val validationService: ValidationService
+) : ChatRepository {
 
     private val logger = Logger.withTag("ChatRepository")
 
@@ -75,6 +80,29 @@ class ChatRepositoryImpl(
                 // Step 0: Ensure session exists
                 ensureSessionExists(sessionId)
 
+                // === Validate user request against invariants ===
+                val requestValidation = validateInvariantViolationUseCase(
+                    text = message,
+                    checkType = CheckType.USER_REQUEST
+                )
+
+                if (requestValidation.shouldBlock) {
+                    logger.w { "User request blocked by invariant: ${requestValidation.blockMessage}" }
+                    // Remove any partially saved data
+                    return@withContext ResultWrapper.Error(
+                        throwable = InvariantViolationException(
+                            message = requestValidation.blockMessage ?: "Invariant violation",
+                            violations = requestValidation.violations
+                        ),
+                        message = requestValidation.blockMessage ?: "Запрос заблокирован из-за нарушения правил проекта"
+                    )
+                }
+
+                // Log warnings if any
+                if (requestValidation.hasViolations) {
+                    logger.w { "User request has warnings: ${requestValidation.violations.size}" }
+                }
+
                 // Step 1: Create user message with UUID
                 val userMessage = Message(
                     id = Uuid.random().toString(),
@@ -101,7 +129,6 @@ class ChatRepositoryImpl(
                 }
 
                 // Step 5: Get memory context for system prompt
-                val getMemoryContextUseCase: GetMemoryContextUseCase = get()
                 val memoryContext = getMemoryContextUseCase(sessionId)
                 val systemPrompt = memoryContext.toSystemPrompt()
                 if (systemPrompt.isNotBlank()) {
@@ -122,6 +149,7 @@ class ChatRepositoryImpl(
                         role = when (msg.senderType) {
                             SenderType.USER -> "user"
                             SenderType.ASSISTANT -> "assistant"
+                            SenderType.SYSTEM -> "system"
                         },
                         content = msg.content
                     )
@@ -145,10 +173,50 @@ class ChatRepositoryImpl(
                     )
                 }
 
+                // === Validate AI response against invariants ===
+                // FIX: Safe null handling for AI response content
+                val aiResponse = response.choices.firstOrNull()?.message?.content
+                if (aiResponse.isNullOrBlank()) {
+                    logger.e { "Empty AI response content" }
+                    // Remove user message on error
+                    messageDao.deleteMessageById(userMessage.id)
+                    return@withContext ResultWrapper.Error(
+                        throwable = IllegalStateException("Empty AI response content"),
+                        message = "Received empty content from AI"
+                    )
+                }
+
+                val responseValidation = validateInvariantViolationUseCase(
+                    text = aiResponse,
+                    checkType = CheckType.AI_RESPONSE
+                )
+
+                if (responseValidation.shouldBlock) {
+                    logger.w { "AI response blocked by invariant: ${responseValidation.blockMessage}" }
+                    // Remove user message since AI response is blocked
+                    messageDao.deleteMessageById(userMessage.id)
+
+                    // Return a system message instead of the blocked response
+                    val blockedMessage = Message(
+                        id = Uuid.random().toString(),
+                        content = "Сгенерированный ответ нарушает инвариант проекта:\n\n${responseValidation.blockMessage}\n\nПожалуйста, уточните запрос.",
+                        senderType = SenderType.SYSTEM,
+                        timestamp = currentTimeMillis()
+                    )
+
+                    // Don't save the blocked message, just return it
+                    return@withContext ResultWrapper.Success(blockedMessage)
+                }
+
+                // Log warnings if any
+                if (responseValidation.hasViolations) {
+                    logger.w { "AI response has warnings: ${responseValidation.violations.size}" }
+                }
+
                 // Step 8: Create and save assistant message
                 val assistantMessage = Message(
                     id = response.id,
-                    content = response.choices.first().message.content,
+                    content = aiResponse,
                     senderType = SenderType.ASSISTANT,
                     timestamp = currentTimeMillis()
                 )
@@ -179,6 +247,12 @@ class ChatRepositoryImpl(
                 logger.i { "sendMessage completed successfully for session: $sessionId" }
                 ResultWrapper.Success(assistantMessage)
 
+            } catch (e: InvariantViolationException) {
+                logger.e(throwable = e) { "Invariant violation in sendMessage" }
+                ResultWrapper.Error(
+                    throwable = e,
+                    message = e.message ?: "Invariant violation"
+                )
             } catch (e: Exception) {
                 logger.e(throwable = e) { "Error sending message to DeepSeek API" }
                 networkErrorHandling.transformToResultWrapper(e)
@@ -195,11 +269,21 @@ class ChatRepositoryImpl(
 
         return withContext(Dispatchers.IO) {
             try {
+                // === NEW: Validate USER_REQUEST before sending ===
+                val requestValidation = validationService.validate(message, CheckType.USER_REQUEST)
+                if (requestValidation.shouldBlock) {
+                    val blockMsg = requestValidation.blockMessage ?: "Validation blocked"
+                    logger.w { "User request blocked by invariant validation: $blockMsg" }
+                    return@withContext ResultWrapper.Error(
+                        throwable = InvariantViolationException(blockMsg),
+                        message = blockMsg
+                    )
+                }
+
                 // Get optimized context (without adding the silent message)
                 val optimizedContext = getOptimizedContext(sessionId)
 
                 // Get memory context for system prompt
-                val getMemoryContextUseCase: GetMemoryContextUseCase = get()
                 val memoryContext = getMemoryContextUseCase(sessionId)
                 val systemPrompt = memoryContext.toSystemPrompt()
 
@@ -217,6 +301,7 @@ class ChatRepositoryImpl(
                         role = when (msg.senderType) {
                             SenderType.USER -> "user"
                             SenderType.ASSISTANT -> "assistant"
+                            SenderType.SYSTEM -> "system"
                         },
                         content = msg.content
                     )
@@ -239,7 +324,32 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                val responseContent = response.choices.first().message.content
+                // FIX: Safe null handling for response content
+                val responseContent = response.choices.firstOrNull()?.message?.content
+                if (responseContent.isNullOrBlank()) {
+                    logger.e { "Empty response content in silent message" }
+                    return@withContext ResultWrapper.Error(
+                        throwable = IllegalStateException("Empty response content"),
+                        message = "Received empty content from AI"
+                    )
+                }
+
+                // === NEW: Validate AI_RESPONSE after receiving ===
+                val responseValidation = validationService.validate(responseContent, CheckType.AI_RESPONSE)
+                if (responseValidation.shouldBlock) {
+                    val blockMsg = responseValidation.blockMessage ?: "AI response blocked by validation"
+                    logger.w { "AI response blocked by invariant validation: $blockMsg" }
+                    throw InvariantViolationException(blockMsg)
+                }
+
+                // Log warnings if any
+                if (responseValidation.warnings.isNotEmpty()) {
+                    logger.w { "AI response has warnings: ${responseValidation.warnings.size}" }
+                }
+                if (requestValidation.warnings.isNotEmpty()) {
+                    logger.w { "User request has warnings: ${requestValidation.warnings.size}" }
+                }
+
                 logger.i { "Silent request completed successfully" }
                 ResultWrapper.Success(responseContent)
 

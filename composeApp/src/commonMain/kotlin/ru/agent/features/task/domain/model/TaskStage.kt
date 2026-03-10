@@ -6,7 +6,8 @@ import kotlinx.serialization.Serializable
  * Enum representing the stages of a task lifecycle.
  *
  * Task flow: PLANNING -> EXECUTION -> VALIDATION -> DONE
- * VALIDATION is mandatory - user must confirm the result.
+ * Alternative flow: PLANNING -> EXECUTION -> DONE (skip validation - requires result)
+ * VALIDATION is recommended but can be skipped if user has result.
  */
 @Serializable
 enum class TaskStage {
@@ -20,9 +21,8 @@ enum class TaskStage {
      *
      * Valid transitions:
      * - PLANNING -> EXECUTION
-     * - EXECUTION -> VALIDATION (mandatory)
-     * - VALIDATION -> DONE (user confirmed)
-     * - VALIDATION -> EXECUTION (user rejected, retry)
+     * - EXECUTION -> VALIDATION (recommended) or DONE (skip validation)
+     * - VALIDATION -> DONE (user confirmed) or EXECUTION (user rejected, retry)
      * - Any stage -> same stage (no transition)
      *
      * @param targetStage The stage to transition to
@@ -31,7 +31,7 @@ enum class TaskStage {
     fun canTransitionTo(targetStage: TaskStage): Boolean {
         return when (this) {
             PLANNING -> targetStage == EXECUTION || targetStage == PLANNING
-            EXECUTION -> targetStage == VALIDATION || targetStage == EXECUTION
+            EXECUTION -> targetStage == VALIDATION || targetStage == DONE || targetStage == EXECUTION
             VALIDATION -> targetStage == DONE || targetStage == EXECUTION || targetStage == VALIDATION
             DONE -> targetStage == DONE // No transitions from DONE
         }

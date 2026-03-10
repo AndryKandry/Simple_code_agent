@@ -24,7 +24,9 @@ import ru.agent.features.chat.domain.usecase.SaveMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendSilentMessageUseCase
 import ru.agent.features.chat.presentation.ChatViewModel
-import ru.agent.features.task.domain.usecase.UpdateTaskStateUseCase
+import ru.agent.features.invariant.domain.service.ValidationService
+import ru.agent.features.invariant.domain.usecase.ValidateInvariantViolationUseCase
+import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 
 val featureChatModule = module {
     // DAOs
@@ -43,7 +45,19 @@ val featureChatModule = module {
     single { ContextOptimizer(maxTokens = 4000, keepRecentMessages = 4) }
 
     // Repositories
-    singleOf(::ChatRepositoryImpl) bind ChatRepository::class
+    // FIX: ChatRepositoryImpl now uses constructor injection for all dependencies
+    single<ChatRepository> {
+        ChatRepositoryImpl(
+            deepSeekApiClient = get(),
+            networkErrorHandling = get(),
+            messageDao = get(),
+            chatSessionDao = get(),
+            contextOptimizer = get(),
+            validateInvariantViolationUseCase = get(),
+            getMemoryContextUseCase = get(),
+            validationService = get()
+        )
+    }
     singleOf(::ChatSessionRepositoryImpl) bind ChatSessionRepository::class
 
     // Use Cases

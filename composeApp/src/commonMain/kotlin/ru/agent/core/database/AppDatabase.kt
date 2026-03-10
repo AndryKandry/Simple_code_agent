@@ -8,6 +8,8 @@ import ru.agent.features.chat.data.local.dao.ChatSessionDao
 import ru.agent.features.chat.data.local.dao.MessageDao
 import ru.agent.features.chat.data.local.entity.ChatSessionEntity
 import ru.agent.features.chat.data.local.entity.MessageEntity
+import ru.agent.features.invariant.data.local.dao.InvariantDao
+import ru.agent.features.invariant.data.local.entity.InvariantEntity
 import ru.agent.features.memory.data.local.dao.ContextAnchorDao
 import ru.agent.features.memory.data.local.dao.KnowledgeEntryDao
 import ru.agent.features.memory.data.local.dao.UserProfileDao
@@ -28,9 +30,10 @@ import ru.agent.features.task.data.local.entity.TaskStateEntity
         KnowledgeEntryEntity::class,
         UserProfileEntity::class,
         ContextAnchorEntity::class,
-        TaskStateEntity::class
+        TaskStateEntity::class,
+        InvariantEntity::class
     ],
-    version = 6
+    version = 8
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -42,6 +45,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun getUserProfileDao(): UserProfileDao
     abstract fun getContextAnchorDao(): ContextAnchorDao
     abstract fun getTaskStateDao(): TaskStateDao
+    abstract fun getInvariantDao(): InvariantDao
 }
 
 // The Room compiler generates the `actual` implementations.

@@ -183,10 +183,20 @@ class TaskStateViewModel(
 
         viewModelScope.launch {
             try {
-                val updatedTask = transitionTaskStageUseCase.advanceToNextStage(taskId)
+                val transitionResult = transitionTaskStageUseCase.advanceToNextStage(taskId)
+                val updatedTask = transitionResult.taskState
                 if (updatedTask != null) {
-                    viewState = viewState.copy(currentTask = updatedTask)
+                    viewState = viewState.copy(
+                        currentTask = updatedTask,
+                        transitionWarnings = transitionResult.warnings
+                    )
                     logger.i { "Task advanced to: ${updatedTask.taskStage}" }
+
+                    // Show warnings if any
+                    if (transitionResult.hasWarnings()) {
+                        viewAction = TaskStateAction.ShowTransitionWarnings(transitionResult.warnings)
+                    }
+
                     viewAction = TaskStateAction.StageChanged(
                         fromStage = currentStage.name,
                         toStage = updatedTask.taskStage.name
@@ -215,10 +225,20 @@ class TaskStateViewModel(
 
         viewModelScope.launch {
             try {
-                val updatedTask = transitionTaskStageUseCase.skipValidationAndComplete(taskId)
+                val transitionResult = transitionTaskStageUseCase.skipValidationAndComplete(taskId)
+                val updatedTask = transitionResult.taskState
                 if (updatedTask != null) {
-                    viewState = viewState.copy(currentTask = updatedTask)
+                    viewState = viewState.copy(
+                        currentTask = updatedTask,
+                        transitionWarnings = transitionResult.warnings
+                    )
                     logger.i { "Task completed (validation skipped): $taskId" }
+
+                    // Show warnings if any
+                    if (transitionResult.hasWarnings()) {
+                        viewAction = TaskStateAction.ShowTransitionWarnings(transitionResult.warnings)
+                    }
+
                     viewAction = TaskStateAction.TaskCompleted(
                         taskId = updatedTask.taskId,
                         taskName = updatedTask.taskName

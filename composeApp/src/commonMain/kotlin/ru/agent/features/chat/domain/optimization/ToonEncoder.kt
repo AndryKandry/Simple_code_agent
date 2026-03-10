@@ -26,6 +26,7 @@ object ToonEncoder {
     private const val HEADER_SUFFIX = "]{role,content}:\n"
     private const val ROLE_USER = "user"
     private const val ROLE_ASSISTANT = "assistant"
+    private const val ROLE_SYSTEM = "system"
 
     /**
      * Encode a list of messages to TOON format.
@@ -43,6 +44,7 @@ object ToonEncoder {
             val role = when (message.senderType) {
                 SenderType.USER -> ROLE_USER
                 SenderType.ASSISTANT -> ROLE_ASSISTANT
+                SenderType.SYSTEM -> ROLE_SYSTEM
             }
             // Escape commas and newlines in content
             val escapedContent = escapeContent(message.content)
@@ -192,6 +194,7 @@ object ToonEncoder {
             val role = when (message.senderType) {
                 SenderType.USER -> "user"
                 SenderType.ASSISTANT -> "assistant"
+                SenderType.SYSTEM -> "system"
             }
             """    {"role": "$role", "content": "${message.content.escapeJson()}"}"""
         }

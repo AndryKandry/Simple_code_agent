@@ -11,8 +11,11 @@ import org.jline.terminal.TerminalBuilder
 import ru.agent.cli.controller.CliChatController
 import ru.agent.cli.controller.CliChatResult
 import ru.agent.cli.formatters.OutputFormatter
+import ru.agent.cli.visualization.CliAnimator
+import ru.agent.cli.visualization.domain.ProgressState
 import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 import ru.agent.features.profile.domain.usecase.GetUserProfileUseCase
+import ru.agent.features.task.domain.repository.TaskStateRepository
 import java.io.IOException
 import kotlin.system.exitProcess
 
@@ -26,39 +29,36 @@ import kotlin.system.exitProcess
  * - Keyboard shortcuts (Ctrl+C cancels input, Ctrl+D or exit/quit to exit)
  * - Task State Machine integration
  * - Memory integration
+ * - Enhanced prompt with progress indicators
+ * - Real-time progress visualization
  */
 class ReplController {
     private val terminal = Terminal()
     private lateinit var jlineTerminal: JLineTerminal
     private lateinit var reader: LineReader
 
-    // Chat Controller (will be injected via Koin)
+    // Chat Controller (injected via Koin singleton)
     private val chatController: CliChatController by lazy {
-        val koin = org.koin.java.KoinJavaComponent.getKoin()
-        CliChatController(
-            sendMessageUseCase = koin.get(),
-            sendSilentMessageUseCase = koin.get(),
-            saveMessageUseCase = koin.get(),
-            getChatHistoryUseCase = koin.get(),
-            addMessageToMemoryUseCase = koin.get(),
-            getTaskStateUseCase = koin.get(),
-            createTaskFromMessageUseCase = koin.get(),
-            generateTaskPlanUseCase = koin.get(),
-            validateTaskResultUseCase = koin.get(),
-            transitionTaskStageUseCase = koin.get(),
-            updateTaskStateUseCase = koin.get(),
-            pauseTaskUseCase = koin.get(),
-            resumeTaskUseCase = koin.get(),
-            cancelTaskUseCase = koin.get()
-        )
+        org.koin.java.KoinJavaComponent.getKoin().get()
+    }
+
+    // CLI Animator (injected via Koin singleton)
+    private val cliAnimator: CliAnimator by lazy {
+        org.koin.java.KoinJavaComponent.getKoin().get()
     }
 
     // Additional UseCases for slash commands
     private val getUserProfileUseCase: GetUserProfileUseCase by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
     private val getMemoryContextUseCase: GetMemoryContextUseCase by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
 
+    // Repository for cleanup
+    private val taskStateRepository: TaskStateRepository by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
+
     private val replScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val historyFile = System.getProperty("user.home") + "/.agent_history"
+
+    // Progress monitoring job
+    private var progressMonitorJob: Job? = null
 
     /**
      * Start the REPL loop.
@@ -66,6 +66,16 @@ class ReplController {
     fun start() {
         try {
             initializeTerminal()
+
+            // Clean up stale tasks from previous sessions
+            replScope.launch {
+                try {
+                    taskStateRepository.deleteCompletedTasksForSession(CliChatController.CLI_SESSION_ID)
+                } catch (e: Exception) {
+                    terminal.println(yellow("Warning: Could not clean up old tasks: ${e.message}"))
+                }
+            }
+
             showWelcome()
 
             // Register cleanup callback with shutdown manager
@@ -94,17 +104,30 @@ class ReplController {
                             replScope.launch { showStatus() }
                         }
                         else -> {
-                            // Echo user message with label
-                            terminal.println()
-                            terminal.println("${bold(blue("You:"))} ${line.trim()}")
-                            processCommand(line.trim())
+                            // Clean the input from potential terminal artifacts
+                            val cleanLine = cleanTerminalInput(line)
+                            // Echo user message with label using JLine writer
+                            val writer = jlineTerminal.writer()
+                            writer.println()
+                            writer.println("\u001B[1;34mYou:\u001B[0m $cleanLine")
+                            writer.flush()
+                            processCommand(cleanLine)
                         }
                     }
 
                 } catch (e: UserInterruptException) {
-                    // Ctrl+C was pressed - cancel current input, continue
-                    println()
-                    continue
+                    // Ctrl+C was pressed
+                    if (chatController.hasActiveTask() || chatController.getProgressState().value is ProgressState.InProgress) {
+                        // Interrupt active operation
+                        replScope.launch {
+                            val output: (String) -> Unit = { terminal.println(it) }
+                            chatController.handleInterrupt(output)
+                        }
+                    } else {
+                        // Cancel current input, continue
+                        println()
+                        continue
+                    }
                 } catch (e: EndOfFileException) {
                     // Ctrl+D was pressed
                     println()
@@ -129,6 +152,7 @@ class ReplController {
         jlineTerminal = TerminalBuilder.builder()
             .jna(true)
             .system(true)
+            .encoding(Charsets.UTF_8)
             .build()
 
         reader = LineReaderBuilder.builder()
@@ -137,6 +161,7 @@ class ReplController {
             .completer(AgentCompleter())
             .parser(InputParser())
             .variable(LineReader.HISTORY_FILE, historyFile)
+            .variable(LineReader.EDITING_MODE, "emacs")
             .build()
 
         // Load history
@@ -160,10 +185,24 @@ class ReplController {
 
     /**
      * Generate dynamic prompt based on current state.
+     * Includes validation indicator and progress information.
      */
     private fun prompt(): String {
         val task = chatController.getCurrentTask()
+        val progressState = chatController.getProgressState().value
+
+        // Enhanced prompt with progress
         return when {
+            // Show progress during active operations
+            progressState is ProgressState.InProgress -> {
+                val percentage = progressState.getClampedPercentage()
+                val stepInfo = progressState.getStepInfo()
+                val stepText = stepInfo?.let { " [$it]" } ?: ""
+
+                "${bold(blue("task"))}${gray("[$percentage%$stepText]")} "
+            }
+
+            // Show waiting state
             task?.waitingForUserInput == true -> {
                 val stageColor = when (task.taskStage) {
                     ru.agent.features.task.domain.model.TaskStage.PLANNING -> yellow("plan")
@@ -172,9 +211,19 @@ class ReplController {
                 }
                 "${bold(stageColor)}${gray(">")} "
             }
+
+            // Show active task with progress
             task != null && !task.isCompleted() -> {
-                "${bold(blue("task"))}${gray(">")} "
+                val progress = task.planProgressPercentage()
+                val warningIndicator = if (chatController.wasInterrupted()) {
+                    yellow(" ⚠")
+                } else {
+                    ""
+                }
+                "${bold(blue("task"))}${gray("[$progress%$warningIndicator]")} "
             }
+
+            // Default prompt
             else -> "${cyan("agent")}${gray(">")} "
         }
     }
@@ -222,6 +271,7 @@ class ReplController {
             "task" -> handleTaskCommand(args)
             "memory" -> handleMemoryCommand(args)
             "shell" -> handleShellCommand(args)
+            "invariant", "inv" -> handleInvariantCommand(args)
             "help" -> showHelp()
             "clear" -> clearScreen()
             "status" -> showStatus()
@@ -233,8 +283,6 @@ class ReplController {
      * Send chat message to AI through CliChatController.
      */
     private suspend fun processChatMessage(message: String) {
-        terminal.println(gray("Thinking..."))
-
         val output: (String) -> Unit = { text ->
             terminal.println()
             terminal.print(bold(cyan("Agent")))
@@ -243,32 +291,94 @@ class ReplController {
         }
 
         when (val result = chatController.processMessage(message, output)) {
+            is CliChatResult.WithWarnings -> {
+                // Display warnings first
+                if (result.warnings.isNotEmpty()) {
+                    terminal.println()
+                    terminal.println(ru.agent.cli.formatters.UserMessageFormatter.formatValidationWarnings(result.warnings))
+                    terminal.println()
+                }
+                // Then handle base result
+                handleChatResult(result.baseResult)
+            }
+            else -> handleChatResult(result)
+        }
+
+        terminal.println()
+    }
+
+    /**
+     * Handle chat result with optional warnings display.
+     */
+    private suspend fun handleChatResult(result: CliChatResult) {
+        when (result) {
             is CliChatResult.SimpleChat -> {
+                // Display warnings if present
+                if (result.warnings.isNotEmpty()) {
+                    terminal.println()
+                    terminal.println(ru.agent.cli.formatters.UserMessageFormatter.formatValidationWarnings(result.warnings))
+                    terminal.println()
+                }
                 // Response already output via callback
             }
             is CliChatResult.TaskCreated -> {
                 terminal.println(gray("Task created: ${result.task.taskName}"))
             }
             is CliChatResult.TaskWaitingForApproval -> {
+                // Display validation warnings if present
+                if (result.warnings.isNotEmpty()) {
+                    terminal.println()
+                    terminal.println(ru.agent.cli.formatters.UserMessageFormatter.formatValidationWarnings(result.warnings))
+                }
+                // Display transition warnings if present
+                if (result.transitionWarnings.isNotEmpty()) {
+                    terminal.println()
+                    terminal.println(ru.agent.cli.formatters.UserMessageFormatter.formatTransitionWarnings(result.transitionWarnings))
+                }
+                if (result.warnings.isNotEmpty() || result.transitionWarnings.isNotEmpty()) {
+                    terminal.println()
+                }
                 // Approval prompt already output via callback
             }
             is CliChatResult.TaskCompleted -> {
+                // Display transition warnings if present
+                if (result.transitionWarnings.isNotEmpty()) {
+                    terminal.println()
+                    terminal.println(ru.agent.cli.formatters.UserMessageFormatter.formatTransitionWarnings(result.transitionWarnings))
+                    terminal.println()
+                }
                 // Summary already output via callback
                 terminal.println()
-                terminal.println(green("✅ Task completed!"))
+                terminal.println(green("Task completed!"))
             }
             is CliChatResult.TaskCancelled -> {
                 terminal.println(yellow("Task cancelled."))
             }
+            is CliChatResult.TaskInterrupted -> {
+                terminal.println(yellow("Task interrupted."))
+                if (result.canResume) {
+                    terminal.println(gray("  Tip: You can resume this task"))
+                }
+            }
             is CliChatResult.Error -> {
-                terminal.println(red("Error: ${result.message}"))
+                // Display error message
+                if (result.message.isNotEmpty()) {
+                    terminal.println(red(result.message))
+                }
+                // Display suggestions if present
+                if (result.suggestions.isNotEmpty()) {
+                    terminal.println()
+                    terminal.println(ru.agent.cli.formatters.UserMessageFormatter.formatSuggestions(result.suggestions))
+                }
             }
             is CliChatResult.Empty -> {
                 // Do nothing
             }
+            is CliChatResult.WithWarnings -> {
+                // This case should not occur (handled above), but safe fallback
+                handleChatResult(result.baseResult)
+            }
         }
-
-        terminal.println()
     }
 
     /**
@@ -389,6 +499,110 @@ class ReplController {
     }
 
     /**
+     * Handle invariant commands.
+     */
+    private suspend fun handleInvariantCommand(args: String) {
+        val getInvariantsUseCase: ru.agent.features.invariant.domain.usecase.GetInvariantsUseCase by lazy {
+            org.koin.java.KoinJavaComponent.getKoin().get()
+        }
+        val addInvariantUseCase: ru.agent.features.invariant.domain.usecase.AddInvariantUseCase by lazy {
+            org.koin.java.KoinJavaComponent.getKoin().get()
+        }
+        val toggleInvariantUseCase: ru.agent.features.invariant.domain.usecase.ToggleInvariantUseCase by lazy {
+            org.koin.java.KoinJavaComponent.getKoin().get()
+        }
+        val removeInvariantUseCase: ru.agent.features.invariant.domain.usecase.RemoveInvariantUseCase by lazy {
+            org.koin.java.KoinJavaComponent.getKoin().get()
+        }
+
+        val parts = args.trim().split("\\s+".toRegex(), 2)
+        val subCommand = parts.getOrNull(0) ?: "list"
+        val subArgs = parts.getOrNull(1) ?: ""
+
+        when (subCommand) {
+            "list", "ls", "" -> {
+                val result = getInvariantsUseCase()
+                if (result.invariants.isEmpty()) {
+                    terminal.println(yellow("No invariants found"))
+                } else {
+                    terminal.println()
+                    terminal.println(bold("Project Invariants (${result.totalCount}):"))
+                    terminal.println()
+                    result.invariants.forEach { inv ->
+                        val status = if (inv.isActive) green("[ACTIVE]") else red("[INACTIVE]")
+                        val priority = when (inv.priority) {
+                            ru.agent.features.invariant.domain.model.InvariantPriority.CRITICAL -> red("[CRITICAL]")
+                            ru.agent.features.invariant.domain.model.InvariantPriority.HIGH -> yellow("[HIGH]")
+                            ru.agent.features.invariant.domain.model.InvariantPriority.MEDIUM -> gray("[MEDIUM]")
+                        }
+                        terminal.println("  ${cyan(inv.id.take(16))} $status $priority")
+                        terminal.println("    ${inv.description.take(60)}${if (inv.description.length > 60) "..." else ""}")
+                    }
+                    terminal.println()
+                    terminal.println(gray("Use /invariant add|toggle|remove to manage"))
+                }
+            }
+            "add" -> {
+                if (subArgs.isBlank()) {
+                    terminal.println(red("Usage: /invariant add <description> [-c category] [-p priority]"))
+                    terminal.println(gray("Categories: architecture, technology, stack, business"))
+                    terminal.println(gray("Priorities: critical, high, medium"))
+                    return
+                }
+                val result = addInvariantUseCase(
+                    description = subArgs,
+                    category = ru.agent.features.invariant.domain.model.InvariantCategory.BUSINESS_RULE,
+                    priority = ru.agent.features.invariant.domain.model.InvariantPriority.MEDIUM
+                )
+                result.fold(
+                    onSuccess = { inv ->
+                        terminal.println(green("✓ Added: ${inv.id}"))
+                        terminal.println(gray("  ${inv.description}"))
+                    },
+                    onFailure = { e ->
+                        terminal.println(red("✗ Failed: ${e.message}"))
+                    }
+                )
+            }
+            "toggle" -> {
+                if (subArgs.isBlank()) {
+                    terminal.println(red("Usage: /invariant toggle <id>"))
+                    return
+                }
+                val result = toggleInvariantUseCase(subArgs.trim())
+                result.fold(
+                    onSuccess = { inv ->
+                        val status = if (inv.isActive) green("ENABLED") else red("DISABLED")
+                        terminal.println("✓ $status: ${inv.id}")
+                    },
+                    onFailure = { e ->
+                        terminal.println(red("✗ Failed: ${e.message}"))
+                    }
+                )
+            }
+            "remove", "rm" -> {
+                if (subArgs.isBlank()) {
+                    terminal.println(red("Usage: /invariant remove <id>"))
+                    return
+                }
+                val result = removeInvariantUseCase(subArgs.trim())
+                result.fold(
+                    onSuccess = {
+                        terminal.println(green("✓ Removed: ${subArgs.trim()}"))
+                    },
+                    onFailure = { e ->
+                        terminal.println(red("✗ Failed: ${e.message}"))
+                    }
+                )
+            }
+            else -> {
+                terminal.println(yellow("Unknown invariant command: $subCommand"))
+                terminal.println(gray("Use: list, add, toggle, remove"))
+            }
+        }
+    }
+
+    /**
      * Show help message.
      */
     private fun showHelp() {
@@ -408,6 +622,9 @@ class ReplController {
         terminal.println("  ${cyan("/task pause")}      Pause current task")
         terminal.println("  ${cyan("/task resume")}     Resume paused task")
         terminal.println("  ${cyan("/memory show")}     Show memory context")
+        terminal.println("  ${cyan("/invariant list")}  Show project invariants")
+        terminal.println("  ${cyan("/invariant add")}   Add new invariant")
+        terminal.println("  ${cyan("/invariant toggle")} Enable/disable invariant")
         terminal.println("  ${cyan("/shell <cmd>")}     Execute shell command")
         terminal.println()
         terminal.println(bold("Task Dialog Flow:"))
@@ -426,6 +643,25 @@ class ReplController {
         terminal.println("  ${cyan("Ctrl+C")}           Cancel current input")
         terminal.println("  ${cyan("Ctrl+D")}           Exit the application")
         terminal.println()
+    }
+
+    /**
+     * Clean terminal input from potential artifacts.
+     *
+     * When editing text in terminal (backspace, delete), sometimes
+     * escape sequences and control characters remain in the input.
+     */
+    private fun cleanTerminalInput(input: String): String {
+        return input
+            // Remove ANSI escape sequences
+            .replace(Regex("\u001B\\[[;\\d]*[ -/]*[@-~]"), "")
+            // Remove control characters (except newlines and tabs)
+            .replace(Regex("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]"), "")
+            // Remove null characters
+            .replace("\u0000", "")
+            // Clean up multiple spaces
+            .replace(Regex("  +"), " ")
+            .trim()
     }
 
     /**

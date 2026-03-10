@@ -1,6 +1,7 @@
 package ru.agent.features.memory.domain.model
 
 import ru.agent.features.chat.domain.model.Message
+import ru.agent.features.invariant.domain.model.Invariant
 
 /**
  * Memory Context - агрегированный контекст памяти.
@@ -13,13 +14,15 @@ import ru.agent.features.chat.domain.model.Message
  * @property userProfile Профиль пользователя
  * @property relevantKnowledge Релевантные записи из базы знаний
  * @property activeAnchors Активные контекстные якоря
+ * @property activeInvariants Активные инварианты проекта
  */
 data class MemoryContext(
     val shortTermMemory: ShortTermMemory = ShortTermMemory(),
     val workingMemory: WorkingMemory? = null,
     val userProfile: UserProfile? = null,
     val relevantKnowledge: List<KnowledgeEntry> = emptyList(),
-    val activeAnchors: List<ContextAnchor> = emptyList()
+    val activeAnchors: List<ContextAnchor> = emptyList(),
+    val activeInvariants: List<Invariant> = emptyList()
 ) {
 
     /**
@@ -30,7 +33,8 @@ data class MemoryContext(
                 workingMemory == null &&
                 userProfile == null &&
                 relevantKnowledge.isEmpty() &&
-                activeAnchors.isEmpty()
+                activeAnchors.isEmpty() &&
+                activeInvariants.isEmpty()
     }
 
     /**
@@ -57,6 +61,11 @@ data class MemoryContext(
         // Рабочая память
         workingMemory?.let { wm ->
             parts.add(buildWorkingMemorySection(wm))
+        }
+
+        // Инварианты проекта
+        if (activeInvariants.isNotEmpty()) {
+            parts.add(buildInvariantsSection())
         }
 
         return if (parts.isNotEmpty()) {
@@ -91,6 +100,13 @@ data class MemoryContext(
      */
     fun getLastNMessages(count: Int): List<Message> {
         return shortTermMemory.getLastNMessages(count)
+    }
+
+    /**
+     * Получить только включенные инварианты из списка активных.
+     */
+    fun getEnabledInvariants(): List<Invariant> {
+        return activeInvariants.filter { it.isActive }
     }
 
     // === Private helper methods ===
@@ -148,6 +164,42 @@ data class MemoryContext(
             |--- CURRENT WORK ---
             |State: ${wm.executionState}
             |$taskInfo
+        """.trimMargin()
+    }
+
+    private fun buildInvariantsSection(): String {
+        val criticalInvariants = activeInvariants.filter { it.priority == ru.agent.features.invariant.domain.model.InvariantPriority.CRITICAL }
+        val highInvariants = activeInvariants.filter { it.priority == ru.agent.features.invariant.domain.model.InvariantPriority.HIGH }
+        val mediumInvariants = activeInvariants.filter { it.priority == ru.agent.features.invariant.domain.model.InvariantPriority.MEDIUM }
+
+        val sections = mutableListOf<String>()
+
+        if (criticalInvariants.isNotEmpty()) {
+            sections.add("CRITICAL RULES (MUST FOLLOW):")
+            sections.addAll(criticalInvariants.map { "- ${it.description}" })
+        }
+
+        if (highInvariants.isNotEmpty()) {
+            sections.add("")
+            sections.add("HIGH PRIORITY RULES (STRONGLY RECOMMENDED):")
+            sections.addAll(highInvariants.map { "- ${it.description}" })
+        }
+
+        if (mediumInvariants.isNotEmpty()) {
+            sections.add("")
+            sections.add("MEDIUM PRIORITY RULES:")
+            sections.addAll(mediumInvariants.map { "- ${it.description}" })
+        }
+
+        return """
+            |--- PROJECT INVARIANTS ---
+            |${sections.joinToString("\n")}
+            |
+            |VIOLATION HANDLING INSTRUCTIONS:
+            |1. If a requested change violates a CRITICAL rule, EXPLAIN why and REFUSE to make the change.
+            |2. If a requested change violates a HIGH priority rule, WARN the user and ask for confirmation.
+            |3. If a requested change violates a MEDIUM priority rule, INFORM the user but proceed if they confirm.
+            |4. ALWAYS explain which invariant is being violated and why it matters.
         """.trimMargin()
     }
 }

@@ -1,6 +1,7 @@
 package ru.agent.features.memory.domain.usecase
 
 import co.touchlab.kermit.Logger
+import ru.agent.features.invariant.domain.repository.InvariantRepository
 import ru.agent.features.memory.domain.model.MemoryContext
 import ru.agent.features.memory.domain.model.ShortTermMemory
 import ru.agent.features.memory.domain.repository.LongTermMemoryRepository
@@ -15,11 +16,13 @@ import ru.agent.features.profile.domain.repository.UserProfileRepository
  * - Short-term Memory (in-memory)
  * - Working Memory (database)
  * - Long-term Memory (database)
+ * - Project Invariants (active rules)
  */
 class GetMemoryContextUseCase(
     private val shortTermMemoryRepository: ShortTermMemoryRepository,
     private val workingMemoryRepository: WorkingMemoryRepository,
-    private val longTermMemoryRepository: LongTermMemoryRepository
+    private val longTermMemoryRepository: LongTermMemoryRepository,
+    private val invariantRepository: InvariantRepository
 ) {
     private val logger = Logger.withTag("GetMemoryContextUseCase")
 
@@ -68,14 +71,21 @@ class GetMemoryContextUseCase(
 
         logger.d { "Active anchors: ${activeAnchors.size}" }
 
+        // 6. Get active invariants (project rules)
+        val activeInvariants = invariantRepository.getActiveInvariants()
+            .filter { it.isActive }
+
+        logger.d { "Active invariants: ${activeInvariants.size}" }
+
         return MemoryContext(
             shortTermMemory = shortTermMemory,
             workingMemory = workingMemory,
             userProfile = userProfile,
             relevantKnowledge = relevantKnowledge,
-            activeAnchors = activeAnchors
+            activeAnchors = activeAnchors,
+            activeInvariants = activeInvariants
         ).also {
-            logger.i { "Memory context built for session: $sessionId" }
+            logger.i { "Memory context built for session: $sessionId with ${activeInvariants.size} invariants" }
         }
     }
 }

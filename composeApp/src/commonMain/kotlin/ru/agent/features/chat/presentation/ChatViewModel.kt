@@ -583,16 +583,27 @@ class ChatViewModel internal constructor(
             addAssistantMessage("Great! Proceeding with the execution...")
 
             // Transition to EXECUTION stage
-            val executionTask = transitionTaskStageUseCase(
+            val transitionResult = transitionTaskStageUseCase(
                 currentTask.taskId,
                 ru.agent.features.task.domain.model.TaskStage.EXECUTION
-            )?.copy(
-                waitingForUserInput = false,
-                expectedAction = "Executing plan..."
             )
 
+            val executionTask = transitionResult.taskState
+
             if (executionTask != null) {
-                viewState = viewState.copy(taskState = executionTask)
+                val taskForExecution = executionTask.copy(
+                    waitingForUserInput = false,
+                    expectedAction = "Executing plan..."
+                )
+                viewState = viewState.copy(
+                    taskState = taskForExecution,
+                    transitionWarnings = transitionResult.warnings
+                )
+
+                // Show warnings if any
+                if (transitionResult.hasWarnings()) {
+                    viewAction = ChatAction.ShowTransitionWarnings(transitionResult.warnings)
+                }
 
                 // Add step-by-step messages for plan execution
                 currentTask.planSteps.forEachIndexed { index, step ->
@@ -613,7 +624,7 @@ class ChatViewModel internal constructor(
                             step.copy(isCompleted = true)
                         }
 
-                        val taskWithCompletedSteps = executionTask.copy(
+                        val taskWithCompletedSteps = taskForExecution.copy(
                             planSteps = completedSteps,
                             currentStep = completedSteps.size,
                             executionResult = executionResult
@@ -666,10 +677,12 @@ class ChatViewModel internal constructor(
         val savedTask = updateTaskStateUseCase(currentTask)
 
         // Transition to VALIDATION stage
-        val validationTask = transitionTaskStageUseCase(
+        val transitionResult = transitionTaskStageUseCase(
             savedTask.taskId,
             ru.agent.features.task.domain.model.TaskStage.VALIDATION
-        )?.copy(
+        )
+
+        val validationTask = transitionResult.taskState?.copy(
             planSteps = savedTask.planSteps,  // Preserve completed steps
             executionResult = executionResult
         )
@@ -690,8 +703,14 @@ class ChatViewModel internal constructor(
 
             viewState = viewState.copy(
                 taskState = taskWaitingForApproval,
-                isTaskPanelVisible = true
+                isTaskPanelVisible = true,
+                transitionWarnings = transitionResult.warnings
             )
+
+            // Show warnings if any
+            if (transitionResult.hasWarnings()) {
+                viewAction = ChatAction.ShowTransitionWarnings(transitionResult.warnings)
+            }
 
             // Add validation result message
             val validationMessage = validatedTask.validationResult ?: "Validation completed."
@@ -807,10 +826,12 @@ class ChatViewModel internal constructor(
                 val summary = createTaskSummary(currentTask)
 
                 // Transition to DONE stage
-                val completedTask = transitionTaskStageUseCase(
+                val transitionResult = transitionTaskStageUseCase(
                     currentTask.taskId,
                     ru.agent.features.task.domain.model.TaskStage.DONE
-                )?.copy(
+                )
+
+                val completedTask = transitionResult.taskState?.copy(
                     waitingForUserInput = false,
                     summary = summary
                 )
@@ -862,10 +883,12 @@ class ChatViewModel internal constructor(
 
             try {
                 // Transition back to EXECUTION stage
-                val retryTask = transitionTaskStageUseCase(
+                val transitionResult = transitionTaskStageUseCase(
                     currentTask.taskId,
                     ru.agent.features.task.domain.model.TaskStage.EXECUTION
-                )?.copy(
+                )
+
+                val retryTask = transitionResult.taskState?.copy(
                     userFeedback = feedback
                 )
 
@@ -1137,10 +1160,10 @@ class ChatViewModel internal constructor(
 
         viewModelScope.launch {
             try {
-                val updatedTask = transitionTaskStageUseCase.advanceToNextStage(taskId)
-                if (updatedTask != null) {
-                    viewState = viewState.copy(taskState = updatedTask)
-                    logger.i { "Task advanced to: ${updatedTask.taskStage}" }
+                val transitionResult = transitionTaskStageUseCase.advanceToNextStage(taskId)
+                if (transitionResult.taskState != null) {
+                    viewState = viewState.copy(taskState = transitionResult.taskState)
+                    logger.i { "Task advanced to: ${transitionResult.taskState.taskStage}" }
                 }
             } catch (e: Exception) {
                 logger.e(throwable = e) { "Failed to advance task stage" }

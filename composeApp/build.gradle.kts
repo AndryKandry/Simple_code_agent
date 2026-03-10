@@ -208,7 +208,8 @@ tasks.register("runCli", JavaExec::class) {
     errorOutput = System.err
 
     // Enable ANSI colors and proper terminal handling
-    val baseArgs = mutableListOf("-Djline.terminal=jline.terminals.impl.PosixSysTerminal")
+    // Let JLine auto-detect terminal type for better Unicode support
+    val baseArgs = mutableListOf<String>()
 
     // Workaround for Gradle daemon issue with stdin
     if (System.console() != null) {

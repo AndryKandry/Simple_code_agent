@@ -18,6 +18,8 @@ import ru.agent.features.task.domain.usecase.ResumeTaskUseCase
 import ru.agent.features.task.domain.usecase.TransitionTaskStageUseCase
 import ru.agent.features.task.domain.usecase.UpdateTaskStateUseCase
 import ru.agent.features.task.domain.usecase.ValidateTaskResultUseCase
+import ru.agent.features.task.domain.validator.TaskTransitionValidator
+import ru.agent.features.task.domain.validator.TaskTransitionValidatorImpl
 import ru.agent.features.task.presentation.TaskStateViewModel
 
 val featureTaskModule = module {
@@ -26,6 +28,9 @@ val featureTaskModule = module {
 
     // Repository
     singleOf(::TaskStateRepositoryImpl) bind TaskStateRepository::class
+
+    // Validator
+    singleOf(::TaskTransitionValidatorImpl) bind TaskTransitionValidator::class
 
     // Use Cases
     singleOf(::GetTaskStateUseCase)

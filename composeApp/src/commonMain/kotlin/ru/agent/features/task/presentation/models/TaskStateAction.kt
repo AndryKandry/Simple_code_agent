@@ -1,5 +1,7 @@
 package ru.agent.features.task.presentation.models
 
+import ru.agent.features.task.domain.validator.TransitionViolation
+
 /**
  * Actions that can be triggered from the TaskStateViewModel.
  */
@@ -13,6 +15,12 @@ sealed class TaskStateAction {
      * Show a success message.
      */
     data class ShowSuccess(val message: String) : TaskStateAction()
+
+    /**
+     * Show transition warnings to the user.
+     * These are non-blocking violations that occurred during stage transitions.
+     */
+    data class ShowTransitionWarnings(val warnings: List<TransitionViolation>) : TaskStateAction()
 
     /**
      * Navigate to a specific task.

@@ -2,6 +2,8 @@ package ru.agent.cli.formatters
 
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
+import ru.agent.cli.visualization.TerminalCapabilities
+import ru.agent.cli.visualization.domain.ProgressState
 import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.memory.domain.model.*
 import ru.agent.features.task.domain.model.TaskState
@@ -15,8 +17,14 @@ import ru.agent.features.task.domain.model.TaskStage
  * - Profiles (structured user information)
  * - Tasks (progress bars and status)
  * - Memory (context visualization)
+ * - Progress visualization with Unicode/ASCII fallback
  */
 object OutputFormatter {
+
+    // Terminal capabilities for graceful degradation
+    private val capabilities = TerminalCapabilities.getCapabilities()
+    private val progressChars = capabilities.getProgressChars()
+    private val statusIcons = capabilities.getStatusIcons()
 
     /**
      * Format chat message for display.
@@ -25,6 +33,7 @@ object OutputFormatter {
         val sender = when (message.senderType) {
             ru.agent.features.chat.domain.model.SenderType.USER -> cyan("You")
             ru.agent.features.chat.domain.model.SenderType.ASSISTANT -> green("Agent")
+            ru.agent.features.chat.domain.model.SenderType.SYSTEM -> yellow("System")
         }
 
         val timestamp = gray(formatTimestamp(message.timestamp))
@@ -143,8 +152,115 @@ object OutputFormatter {
     private fun formatProgressBar(percentage: Int): String {
         val filled = (percentage / 10)
         val empty = 10 - filled
-        val bar = "█".repeat(filled) + "░".repeat(empty)
+        val bar = progressChars.filled.repeat(filled) + progressChars.empty.repeat(empty)
         return "$bar $percentage%"
+    }
+
+    /**
+     * Format enhanced progress bar with step info and sub-progress.
+     *
+     * @param state Progress state
+     * @param showSubProgress Whether to show sub-progress
+     */
+    fun formatProgressBar(
+        state: ProgressState.InProgress,
+        showSubProgress: Boolean = true
+    ): String {
+        val percentage = state.getClampedPercentage()
+        val stepInfo = state.getStepInfo()
+
+        // Build progress bar
+        val barWidth = 20
+        val filledWidth = (percentage / 100.0 * barWidth).toInt()
+        val emptyWidth = barWidth - filledWidth
+
+        val bar = buildString {
+            // Color based on percentage
+            val barColor = when {
+                percentage < 30 -> red
+                percentage < 70 -> yellow
+                else -> green
+            }
+
+            append(barColor(progressChars.filled.repeat(filledWidth)))
+            append(gray(progressChars.empty.repeat(emptyWidth)))
+        }
+
+        // Build status line
+        return buildString {
+            append("$bar ")
+
+            // Percentage
+            append(bold("${percentage}%"))
+
+            // Step info
+            if (stepInfo != null) {
+                append(gray(" [$stepInfo]"))
+            }
+
+            // Message
+            append(" ${state.message}")
+
+            // Sub-progress
+            if (showSubProgress && state.subProgress != null) {
+                val sub = state.subProgress
+                val subPercent = sub.getPercentage()
+                append("\n")
+                append(gray("  └─ ${sub.message} [$subPercent%]"))
+            }
+        }
+    }
+
+    /**
+     * Format real-time progress display.
+     *
+     * @param message Progress message
+     * @param percentage Completion percentage
+     * @param currentStep Current step number
+     * @param totalSteps Total number of steps
+     */
+    fun formatRealTimeProgress(
+        message: String,
+        percentage: Int,
+        currentStep: Int = 0,
+        totalSteps: Int = 0
+    ): String {
+        val state = ProgressState.InProgress(
+            message = message,
+            currentStep = currentStep,
+            totalSteps = totalSteps,
+            percentage = percentage
+        )
+        return formatProgressBar(state, showSubProgress = false)
+    }
+
+    /**
+     * Format interrupted progress with save indicator.
+     *
+     * @param message Interruption message
+     * @param saved Whether state was saved
+     * @param canResume Whether operation can be resumed
+     */
+    fun formatProgressInterrupted(
+        message: String = "Operation interrupted",
+        saved: Boolean = false,
+        canResume: Boolean = false
+    ): String {
+        val savedText = if (saved) {
+            green(" [State saved]")
+        } else {
+            gray(" [State not saved]")
+        }
+
+        return buildString {
+            append(yellow("${statusIcons.warning} $message"))
+            append(savedText)
+
+            if (canResume) {
+                append("\n")
+                append(gray("  Tip: You can resume this operation"))
+            }
+        }
     }
 
     /**
@@ -245,15 +361,68 @@ object OutputFormatter {
      * Format task status bar for prompt.
      */
     fun formatTaskStatusBar(task: TaskState): String {
-        val stageIcon = when (task.taskStage) {
-            TaskStage.PLANNING -> "📋"
-            TaskStage.EXECUTION -> "⚡"
-            TaskStage.VALIDATION -> "✓"
-            TaskStage.DONE -> "✅"
+        val stageIcon = if (capabilities.unicode) {
+            when (task.taskStage) {
+                TaskStage.PLANNING -> "📋"
+                TaskStage.EXECUTION -> "⚡"
+                TaskStage.VALIDATION -> "✓"
+                TaskStage.DONE -> "✅"
+            }
+        } else {
+            when (task.taskStage) {
+                TaskStage.PLANNING -> "[PLAN]"
+                TaskStage.EXECUTION -> "[EXEC]"
+                TaskStage.VALIDATION -> "[VAL]"
+                TaskStage.DONE -> "[DONE]"
+            }
         }
         val progress = task.planProgressPercentage()
-        val waiting = if (task.waitingForUserInput) " ⏳" else ""
+        val waiting = if (task.waitingForUserInput) {
+            if (capabilities.unicode) " ⏳" else " [WAIT]"
+        } else {
+            ""
+        }
 
         return "$stageIcon ${task.taskName.take(20)}${if (task.taskName.length > 20) "..." else ""} [$progress%]$waiting"
+    }
+
+    /**
+     * Format enhanced prompt with stage icon, progress, and warnings.
+     *
+     * @param task Current task
+     * @param hasWarnings Whether there are warnings
+     */
+    fun formatEnhancedPrompt(task: TaskState?, hasWarnings: Boolean = false): String {
+        if (task == null) {
+            return "${cyan("agent")}${gray(">")} "
+        }
+
+        return when {
+            task.waitingForUserInput -> {
+                val stageColor = when (task.taskStage) {
+                    TaskStage.PLANNING -> yellow("plan")
+                    TaskStage.VALIDATION -> magenta("approve")
+                    else -> cyan("task")
+                }
+                "${bold(stageColor)}${gray(">")} "
+            }
+            !task.isCompleted() -> {
+                val warningIndicator = if (hasWarnings) {
+                    yellow(" ⚠")
+                } else {
+                    ""
+                }
+                val progress = task.planProgressPercentage()
+                "${bold(blue("task"))}${gray("[$progress%$warningIndicator]")}${gray(">")} "
+            }
+            else -> "${cyan("agent")}${gray(">")} "
+        }
+    }
+
+    /**
+     * Format validation warnings for display.
+     */
+    fun formatWarnings(warnings: List<ru.agent.features.invariant.domain.service.ValidationWarning>): String {
+        return UserMessageFormatter.formatValidationWarnings(warnings)
     }
 }

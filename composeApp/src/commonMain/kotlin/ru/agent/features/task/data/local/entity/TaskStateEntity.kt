@@ -45,7 +45,13 @@ data class TaskStateEntity(
     val taskName: String,
     val taskDescription: String?,
     val plan: String?,
-    val planStepsJson: String // Serialized List<PlanStep>
+    val planStepsJson: String, // Serialized List<PlanStep>
+    // Result fields for execution and validation stages
+    val waitingForUserInput: Boolean = false,
+    val userFeedback: String? = null,
+    val executionResult: String? = null,
+    val validationResult: String? = null,
+    val summary: String? = null
 ) {
     /**
      * Converts entity to domain model.
@@ -77,7 +83,12 @@ data class TaskStateEntity(
             taskName = taskName,
             taskDescription = taskDescription,
             plan = plan,
-            planSteps = planSteps
+            planSteps = planSteps,
+            waitingForUserInput = waitingForUserInput,
+            userFeedback = userFeedback,
+            executionResult = executionResult,
+            validationResult = validationResult,
+            summary = summary
         )
     }
 
@@ -100,7 +111,12 @@ data class TaskStateEntity(
                 taskName = domainModel.taskName,
                 taskDescription = domainModel.taskDescription,
                 plan = domainModel.plan,
-                planStepsJson = Json.encodeToString(domainModel.planSteps)
+                planStepsJson = Json.encodeToString(domainModel.planSteps),
+                waitingForUserInput = domainModel.waitingForUserInput,
+                userFeedback = domainModel.userFeedback,
+                executionResult = domainModel.executionResult,
+                validationResult = domainModel.validationResult,
+                summary = domainModel.summary
             )
         }
     }

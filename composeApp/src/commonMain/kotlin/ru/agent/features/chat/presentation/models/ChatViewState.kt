@@ -4,6 +4,7 @@ import ru.agent.features.chat.domain.model.ChatSession
 import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.memory.domain.model.UserProfile
 import ru.agent.features.task.domain.model.TaskState
+import ru.agent.features.task.domain.validator.TransitionViolation
 
 data class ChatViewState(
     val currentSessionId: String? = null,
@@ -18,5 +19,10 @@ data class ChatViewState(
     val currentProfile: UserProfile? = null,
     val isProfileDialogOpen: Boolean = false,
     val taskState: TaskState? = null,
-    val isTaskPanelVisible: Boolean = false
+    val isTaskPanelVisible: Boolean = false,
+    /**
+     * Warnings from the last task transition operation.
+     * These are non-blocking violations that occurred during stage transitions.
+     */
+    val transitionWarnings: List<TransitionViolation> = emptyList()
 )
