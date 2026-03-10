@@ -3,15 +3,14 @@ package ru.agent.cli.commands
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
-import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
 import ru.agent.cli.formatters.OutputFormatter
 import ru.agent.common.wrappers.ResultWrapper
-import ru.agent.features.chat.domain.usecase.SendMessageUseCase
-import ru.agent.features.chat.domain.usecase.GetChatHistoryUseCase
 import ru.agent.features.chat.domain.usecase.ClearChatHistoryUseCase
+import ru.agent.features.chat.domain.usecase.GetChatHistoryUseCase
+import ru.agent.features.chat.domain.usecase.SendMessageUseCase
 
 /**
  * Chat command for direct message sending.

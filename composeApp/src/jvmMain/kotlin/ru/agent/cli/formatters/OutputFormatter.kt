@@ -161,4 +161,99 @@ object OutputFormatter {
             else -> "${diff / 86400_000}d ago"
         }
     }
+
+    /**
+     * Format plan approval prompt for CLI.
+     */
+    fun formatPlanApproval(task: TaskState): String {
+        return buildString {
+            append(bold(yellow("\n=== Plan Ready ===\n")))
+            append("Task: ${task.taskName}\n\n")
+
+            if (task.planSteps.isNotEmpty()) {
+                append(bold("Steps:\n"))
+                task.planSteps.forEach { step ->
+                    append("  ${step.number}. ${step.description}\n")
+                }
+            } else if (task.plan != null) {
+                append(bold("Plan:\n"))
+                append(task.plan)
+                append("\n")
+            }
+
+            append("\n")
+            append(gray("Type 'approve' or 'ok' to start execution, or provide feedback to modify.\n"))
+        }
+    }
+
+    /**
+     * Format result approval prompt for CLI.
+     */
+    fun formatResultApproval(task: TaskState): String {
+        return buildString {
+            append(bold(magenta("\n=== Result Ready ===\n")))
+            append("Task: ${task.taskName}\n")
+
+            if (!task.validationResult.isNullOrEmpty()) {
+                append("\n")
+                append(bold("Validation:\n"))
+                append(task.validationResult.take(300))
+                if (task.validationResult.length > 300) append("...")
+                append("\n")
+            }
+
+            if (!task.executionResult.isNullOrEmpty()) {
+                append("\n")
+                append(bold("Result Preview:\n"))
+                append(task.executionResult.take(300))
+                if (task.executionResult.length > 300) append("...")
+                append("\n")
+            }
+
+            append("\n")
+            append(gray("Type 'approve' or 'ok' to complete, or provide feedback to retry.\n"))
+        }
+    }
+
+    /**
+     * Format task progress for CLI status display.
+     */
+    fun formatTaskProgress(task: TaskState): String {
+        return buildString {
+            append(bold(blue("Task: ${task.taskName} ")))
+            append(gray("[${task.taskStage.name}]"))
+            append("\n")
+
+            append("Progress: ${formatProgressBar(task.planProgressPercentage())}\n")
+
+            if (task.planSteps.isNotEmpty()) {
+                append("Steps:\n")
+                task.planSteps.forEach { step ->
+                    val check = if (step.isCompleted) green("✓") else gray("○")
+                    append("  $check ${step.number}. ${step.description}\n")
+                }
+            }
+
+            if (task.waitingForUserInput) {
+                append("\n")
+                append(yellow("⚠ ${task.expectedAction}\n"))
+            }
+        }
+    }
+
+    /**
+     * Format task status bar for prompt.
+     */
+    fun formatTaskStatusBar(task: TaskState): String {
+        val stageIcon = when (task.taskStage) {
+            TaskStage.PLANNING -> "📋"
+            TaskStage.EXECUTION -> "⚡"
+            TaskStage.VALIDATION -> "✓"
+            TaskStage.DONE -> "✅"
+        }
+        val progress = task.planProgressPercentage()
+        val waiting = if (task.waitingForUserInput) " ⏳" else ""
+
+        return "$stageIcon ${task.taskName.take(20)}${if (task.taskName.length > 20) "..." else ""} [$progress%]$waiting"
+    }
 }

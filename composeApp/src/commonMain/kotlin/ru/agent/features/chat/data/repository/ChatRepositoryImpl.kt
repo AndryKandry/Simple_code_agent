@@ -13,6 +13,7 @@ import ru.agent.core.handlers.NetworkErrorHandling
 import ru.agent.core.time.currentTimeMillis
 import ru.agent.features.chat.data.local.dao.ChatSessionDao
 import ru.agent.features.chat.data.local.dao.MessageDao
+import ru.agent.features.chat.data.local.entity.ChatSessionEntity
 import ru.agent.features.chat.data.local.mapper.MessageMapper.toDomain
 import ru.agent.features.chat.data.local.mapper.MessageMapper.toEntity
 import ru.agent.features.chat.data.remote.DeepSeekApiClient
@@ -43,12 +44,37 @@ class ChatRepositoryImpl(
 
     private val logger = Logger.withTag("ChatRepository")
 
+    /**
+     * Ensure the session exists before performing operations.
+     * Creates the session if it doesn't exist.
+     */
+    private suspend fun ensureSessionExists(sessionId: String) {
+        val existingSession = chatSessionDao.getSessionById(sessionId)
+        if (existingSession == null) {
+            logger.i { "Session $sessionId does not exist, creating it..." }
+            val now = currentTimeMillis()
+            val newSession = ChatSessionEntity(
+                id = sessionId,
+                title = "New Chat",
+                createdAt = now,
+                updatedAt = now,
+                isArchived = false,
+                messageCount = 0
+            )
+            chatSessionDao.insertSession(newSession)
+            logger.i { "Session $sessionId created successfully" }
+        }
+    }
+
     @OptIn(ExperimentalUuidApi::class)
     override suspend fun sendMessage(sessionId: String, message: String): ResultWrapper<Message> {
         logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..." }
 
         return withContext(Dispatchers.IO) {
             try {
+                // Step 0: Ensure session exists
+                ensureSessionExists(sessionId)
+
                 // Step 1: Create user message with UUID
                 val userMessage = Message(
                     id = Uuid.random().toString(),

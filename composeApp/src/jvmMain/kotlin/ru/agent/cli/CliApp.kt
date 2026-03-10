@@ -3,38 +3,17 @@ package ru.agent.cli
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
-import com.github.ajalt.clikt.parameters.arguments.argument
-import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
-import com.github.ajalt.mordant.rendering.TextColors.*
-import com.github.ajalt.mordant.rendering.TextStyles.*
+import com.github.ajalt.mordant.rendering.TextColors.gray
+import com.github.ajalt.mordant.rendering.TextColors.red
 import com.github.ajalt.mordant.terminal.Terminal
-import kotlinx.coroutines.*
-import org.jline.reader.*
-import org.jline.reader.impl.history.DefaultHistory
-import org.jline.terminal.Terminal as JLineTerminal
-import org.jline.terminal.TerminalBuilder
-import ru.agent.cli.formatters.OutputFormatter
-import ru.agent.common.wrappers.ResultWrapper
-import ru.agent.features.chat.domain.usecase.SendMessageUseCase
-import ru.agent.features.chat.domain.usecase.GetChatHistoryUseCase
-import ru.agent.features.chat.domain.usecase.ClearChatHistoryUseCase
-import ru.agent.features.profile.domain.usecase.GetUserProfileUseCase
-import ru.agent.features.profile.domain.usecase.UpdateUserProfileUseCase
-import ru.agent.features.profile.domain.usecase.CreateDefaultProfileUseCase
-import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
-import ru.agent.features.memory.domain.usecase.ClearShortTermMemoryUseCase
-import ru.agent.features.task.domain.usecase.*
-import ru.agent.cli.commands.TaskCommand
-import ru.agent.cli.commands.ShellCommand
 import ru.agent.cli.commands.ChatCommand
-import ru.agent.cli.commands.ProfileCommand
 import ru.agent.cli.commands.MemoryCommand
+import ru.agent.cli.commands.ProfileCommand
+import ru.agent.cli.commands.ShellCommand
+import ru.agent.cli.commands.TaskCommand
 import ru.agent.cli.repl.ReplController
-import ru.agent.core.di.initKoin
-import java.io.IOException
-import kotlin.system.exitProcess
 
 /**
  * Main CLI application entry point.
@@ -57,6 +36,7 @@ import kotlin.system.exitProcess
  */
 class CliApp : CliktCommand(
     name = "agent",
+    invokeWithoutSubcommand = true,  // Run parent command even without subcommand
     help = """
         Simple Code Agent CLI
 
@@ -76,12 +56,26 @@ class CliApp : CliktCommand(
     ).flag(default = false)
 
     override fun run() {
-        // Initialize Koin DI
-        initKoin()
+        // Koin is already initialized in main.kt
 
         // If no subcommand and not explicitly interactive, start REPL
         if (currentContext.invokedSubcommand == null) {
             ReplController().start()
+        }
+    }
+
+    companion object {
+        /**
+         * Create configured CliApp instance with all subcommands registered.
+         */
+        fun create(): CliApp {
+            return CliApp().subcommands(
+                ChatCommand(),
+                ProfileCommand(),
+                MemoryCommand(),
+                TaskCommand(),
+                ShellCommand()
+            )
         }
     }
 }
@@ -129,27 +123,5 @@ object ShutdownManager {
         Runtime.getRuntime().addShutdownHook(Thread {
             performShutdown()
         })
-    }
-}
-
-/**
- * Main entry point for CLI application.
- */
-fun main(args: Array<String>) {
-    // Setup graceful shutdown handler
-    ShutdownManager.setupShutdownHook()
-
-    val app = CliApp().subcommands(
-        ChatCommand(),
-        ProfileCommand(),
-        MemoryCommand(),
-        TaskCommand(),
-        ShellCommand()
-    )
-
-    try {
-        app.main(args)
-    } catch (e: Exception) {
-        System.exit(1)
     }
 }

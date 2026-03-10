@@ -1,0 +1,21 @@
+#!/bin/bash
+# Simple Code Agent CLI runner script
+# Usage: ./agent [command] [args]
+# Examples:
+#   ./agent                  # Start REPL
+#   ./agent chat "Hello"     # Send message
+#   ./agent --help           # Show help
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+cd "$SCRIPT_DIR" || exit 1
+
+# Run CLI with configuration cache disabled
+# --quiet suppresses task output, --console=plain disables progress bar
+if [ $# -eq 0 ]; then
+    # REPL mode - use runCli task with proper terminal support
+    exec ./gradlew :composeApp:runCli --no-configuration-cache --quiet --console=plain 2>/dev/null
+else
+    # Command mode - pass arguments
+    exec ./gradlew :composeApp:runCli --args="$*" --no-configuration-cache --quiet --console=plain 2>/dev/null
+fi

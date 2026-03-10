@@ -191,3 +191,29 @@ tasks.matching { it.name.contains("ksp", ignoreCase = true) }.configureEach {
 room {
     schemaDirectory("$projectDir/schemas")
 }
+
+// CLI run task with proper terminal support
+tasks.register("runCli", JavaExec::class) {
+    group = "application"
+    description = "Run the CLI application with proper terminal support"
+
+    classpath = kotlin.jvm().compilations["main"].output.allOutputs +
+                kotlin.jvm().compilations["main"].runtimeDependencyFiles
+
+    mainClass.set("MainKt")
+
+    // Enable proper terminal support
+    standardInput = System.`in`
+    standardOutput = System.out
+    errorOutput = System.err
+
+    // Enable ANSI colors and proper terminal handling
+    val baseArgs = mutableListOf("-Djline.terminal=jline.terminals.impl.PosixSysTerminal")
+
+    // Workaround for Gradle daemon issue with stdin
+    if (System.console() != null) {
+        baseArgs.add("-Djava.io.tmpdir=${System.getProperty("java.io.tmpdir")}")
+    }
+
+    jvmArgs = baseArgs
+}

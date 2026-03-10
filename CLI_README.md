@@ -15,18 +15,34 @@ Simple Code Agent теперь работает как CLI приложение 
 
 ## Запуск
 
-### Основные способы запуска:
+### Рекомендуемый способ (через скрипт):
 
 ```bash
 # Интерактивный REPL режим (по умолчанию)
-./gradlew :composeApp:run
-
-# С флагом --interactive
-./gradlew :composeApp:run --args="--interactive"
+./agent
 
 # Прямые команды
-./gradlew :composeApp:run --args="chat send \"Привет\""
-./gradlew :composeApp:run --args="profile show"
+./agent chat send "Привет"
+./agent profile show
+./agent task list
+./agent shell ls -la
+
+# Справка
+./agent --help
+./agent chat --help
+```
+
+### Альтернативный способ (напрямую через Gradle):
+
+```bash
+# ВАЖНО: Всегда добавляйте --no-configuration-cache для избежания ошибок!
+
+# Интерактивный REPL режим
+./gradlew :composeApp:run --no-configuration-cache
+
+# Прямые команды
+./gradlew :composeApp:run --args="chat send \"Привет\"" --no-configuration-cache
+./gradlew :composeApp:run --args="profile show" --no-configuration-cache
 ```
 
 ### Команды
