@@ -9,6 +9,7 @@ import com.github.ajalt.mordant.rendering.TextColors.gray
 import com.github.ajalt.mordant.rendering.TextColors.red
 import com.github.ajalt.mordant.terminal.Terminal
 import ru.agent.cli.commands.ChatCommand
+import ru.agent.cli.commands.McpCommand
 import ru.agent.cli.commands.MemoryCommand
 import ru.agent.cli.commands.ProfileCommand
 import ru.agent.cli.commands.ShellCommand
@@ -76,7 +77,8 @@ class CliApp : CliktCommand(
                 MemoryCommand(),
                 TaskCommand(),
                 ShellCommand(),
-                InvariantCommand()
+                InvariantCommand(),
+                McpCommand()
             )
         }
     }

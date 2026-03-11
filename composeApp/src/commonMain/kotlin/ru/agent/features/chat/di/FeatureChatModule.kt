@@ -14,6 +14,7 @@ import ru.agent.features.chat.data.repository.ChatSessionRepositoryImpl
 import ru.agent.features.chat.domain.optimization.ContextOptimizer
 import ru.agent.features.chat.domain.repository.ChatRepository
 import ru.agent.features.chat.domain.repository.ChatSessionRepository
+import ru.agent.features.chat.domain.tools.ToolExecutor
 import ru.agent.features.chat.domain.usecase.ClearChatHistoryUseCase
 import ru.agent.features.chat.domain.usecase.CreateChatSessionUseCase
 import ru.agent.features.chat.domain.usecase.DeleteChatSessionUseCase
@@ -55,7 +56,8 @@ val featureChatModule = module {
             contextOptimizer = get(),
             validateInvariantViolationUseCase = get(),
             getMemoryContextUseCase = get(),
-            validationService = get()
+            validationService = get(),
+            toolExecutor = get()  // ToolExecutor for function calling
         )
     }
     singleOf(::ChatSessionRepositoryImpl) bind ChatSessionRepository::class

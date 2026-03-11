@@ -17,10 +17,12 @@ import org.jline.reader.ParsedLine
 class AgentCompleter : Completer {
 
     private val commands = mapOf(
-        "/" to listOf("profile", "task", "memory", "shell", "help", "clear"),
+        "/" to listOf("profile", "task", "memory", "shell", "mcp", "invariant", "help", "clear"),
         "/profile" to listOf("show", "update"),
         "/task" to listOf("list", "status", "create", "cancel", "pause", "resume"),
-        "/memory" to listOf("show", "clear", "search")
+        "/memory" to listOf("show", "clear", "search"),
+        "/mcp" to listOf("status", "list", "tools", "connect", "disconnect", "exec", "read", "write", "run"),
+        "/invariant" to listOf("list", "add", "toggle", "remove")
     )
 
     override fun complete(reader: LineReader, line: ParsedLine, candidates: MutableList<Candidate>) {

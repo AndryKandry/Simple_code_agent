@@ -29,6 +29,9 @@ val featuresModule = module {
 
         // Invariant
         featureInvariantModule,
+
+        // Note: mcpModule is defined in jvmMain and should be loaded separately for CLI applications
+        // It's not included here because it depends on JVM-specific components
     )
 }
 

@@ -4,6 +4,7 @@ import org.koin.dsl.module
 import ru.agent.cli.controller.CliChatController
 import ru.agent.cli.visualization.CliAnimator
 import ru.agent.cli.visualization.ProgressTracker
+import ru.agent.features.chat.di.featureChatJvmModule
 import ru.agent.features.chat.domain.usecase.GetChatHistoryUseCase
 import ru.agent.features.chat.domain.usecase.SaveMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendMessageUseCase
@@ -19,6 +20,7 @@ import ru.agent.features.task.domain.usecase.ResumeTaskUseCase
 import ru.agent.features.task.domain.usecase.TransitionTaskStageUseCase
 import ru.agent.features.task.domain.usecase.UpdateTaskStateUseCase
 import ru.agent.features.task.domain.usecase.ValidateTaskResultUseCase
+import ru.agent.mcp.di.mcpModule
 
 /**
  * Koin module for CLI components.
@@ -29,8 +31,13 @@ import ru.agent.features.task.domain.usecase.ValidateTaskResultUseCase
  * - Working Memory integration
  * - Progress tracking and visualization
  * - CLI animator for spinners and animations
+ * - MCP infrastructure (Filesystem, Terminal, Client)
+ * - Tool executor for function calling
  */
 val cliModule = module {
+    // Include MCP module and Chat JVM module (for ToolExecutor)
+    includes(mcpModule, featureChatJvmModule)
+
     // Progress Tracker - singleton for tracking progress across operations
     single<ProgressTracker> { ProgressTracker() }
 

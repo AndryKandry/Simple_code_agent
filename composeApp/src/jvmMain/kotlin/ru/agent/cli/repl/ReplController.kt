@@ -4,6 +4,9 @@ import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
 import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.*
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.longOrNull
 import org.jline.reader.*
 import org.jline.reader.impl.history.DefaultHistory
 import org.jline.terminal.Terminal as JLineTerminal
@@ -272,6 +275,7 @@ class ReplController {
             "memory" -> handleMemoryCommand(args)
             "shell" -> handleShellCommand(args)
             "invariant", "inv" -> handleInvariantCommand(args)
+            "mcp" -> handleMcpCommand(args)
             "help" -> showHelp()
             "clear" -> clearScreen()
             "status" -> showStatus()
@@ -603,6 +607,259 @@ class ReplController {
     }
 
     /**
+     * Handle MCP commands.
+     */
+    private suspend fun handleMcpCommand(args: String) {
+        val mcpManager: ru.agent.mcp.McpManager by lazy {
+            org.koin.java.KoinJavaComponent.getKoin().get()
+        }
+
+        val parts = args.trim().split("\\s+".toRegex(), 2)
+        val subCommand = parts.getOrNull(0) ?: "status"
+        val subArgs = parts.getOrNull(1) ?: ""
+
+        when (subCommand) {
+            "status", "" -> {
+                terminal.println()
+                terminal.println(bold("MCP Infrastructure Status:"))
+                terminal.println()
+
+                // Built-in servers
+                terminal.println(brightBlue("Built-in Servers:"))
+                mcpManager.getBuiltInServers().forEach { server ->
+                    terminal.println("  ${green(server.name)}: ${server.tools.size} tools")
+                }
+
+                // External connections
+                terminal.println(brightBlue("\nExternal Connections:"))
+                val connected = mcpManager.getConnectedExternalServers()
+                if (connected.isEmpty()) {
+                    terminal.println(gray("  (no connections)"))
+                } else {
+                    connected.forEach { server ->
+                        val status = if (mcpManager.isExternalServerConnected(server)) {
+                            green("connected")
+                        } else {
+                            red("disconnected")
+                        }
+                        terminal.println("  ${yellow(server)}: $status")
+                    }
+                }
+
+                // Summary
+                val totalTools = mcpManager.getAllAvailableTools().size
+                terminal.println(brightBlue("\nTotal Tools Available: $totalTools"))
+            }
+
+            "list", "ls" -> {
+                terminal.println()
+                terminal.println(bold("MCP Servers:"))
+                terminal.println()
+
+                terminal.println(brightBlue("Built-in:"))
+                terminal.println("  ${green("filesystem")} - File operations (read, write, list, search)")
+                terminal.println("  ${green("terminal")}   - Command execution (safe commands only)")
+
+                terminal.println(gray("\nUse /mcp connect <name> <url> to connect to external MCP servers."))
+            }
+
+            "tools" -> {
+                val tools = mcpManager.getAllAvailableTools()
+                    .filter { subArgs.isEmpty() || it.serverName.contains(subArgs, ignoreCase = true) }
+
+                terminal.println()
+                terminal.println(bold("Available MCP Tools (${tools.size}):"))
+                terminal.println()
+
+                tools.groupBy { it.serverName }.forEach { (serverName, serverTools) ->
+                    terminal.println(brightBlue("$serverName:"))
+                    serverTools.forEach { tool ->
+                        terminal.println("  ${green(tool.fullName)}")
+                        if (subArgs.contains("-v", ignoreCase = true)) {
+                            terminal.println(gray("    ${tool.description}"))
+                        }
+                    }
+                }
+            }
+
+            "connect" -> {
+                if (subArgs.isBlank()) {
+                    terminal.println(red("Usage: /mcp connect <server> [url]"))
+                    terminal.println(gray("Example: /mcp connect github"))
+                    terminal.println(gray("Example: /mcp connect custom http://localhost:8080/mcp"))
+                    return
+                }
+
+                val connectParts = subArgs.split("\\s+".toRegex(), 2)
+                val serverName = connectParts[0]
+                val url = connectParts.getOrNull(1)
+
+                if (url == null) {
+                    terminal.println(red("Error: URL required."))
+                    terminal.println(gray("Usage: /mcp connect <name> <url>"))
+                    terminal.println(gray("Example: /mcp connect myserver http://localhost:8080/mcp"))
+                    return
+                }
+
+                val serverUrl = url
+                terminal.println(cyan("Connecting to $serverName at $serverUrl..."))
+
+                try {
+                    kotlinx.coroutines.withTimeout(30000) {
+                        val result = mcpManager.connectToServer(serverName, serverUrl, 30000)
+                        result.fold(
+                            onSuccess = {
+                                terminal.println(green("Successfully connected to $serverName"))
+                            },
+                            onFailure = { error ->
+                                terminal.println(red("Failed to connect: ${error.message}"))
+                            }
+                        )
+                    }
+                } catch (e: Exception) {
+                    terminal.println(red("Connection timeout: ${e.message}"))
+                }
+            }
+
+            "disconnect" -> {
+                if (subArgs.isBlank() || subArgs == "-a" || subArgs == "--all") {
+                    mcpManager.disconnectAll()
+                    terminal.println(green("Disconnected from all external servers."))
+                    return
+                }
+
+                val result = mcpManager.disconnectFromServer(subArgs.trim())
+                result.fold(
+                    onSuccess = {
+                        terminal.println(green("Disconnected from $subArgs."))
+                    },
+                    onFailure = { error ->
+                        terminal.println(red("Failed to disconnect: ${error.message}"))
+                    }
+                )
+            }
+
+            "exec" -> {
+                val execParts = subArgs.split("\\s+".toRegex(), 2)
+                val fullName = execParts.getOrNull(0)
+                val argsJson = execParts.getOrNull(1)
+
+                if (fullName.isNullOrBlank()) {
+                    terminal.println(red("Usage: /mcp exec <server:tool> [json_args]"))
+                    terminal.println(gray("Example: /mcp exec filesystem:read_file {\"path\": \"README.md\"}"))
+                    return
+                }
+
+                // Parse arguments
+                val arguments = if (!argsJson.isNullOrBlank()) {
+                    try {
+                        kotlinx.serialization.json.Json.decodeFromString<
+                            kotlinx.serialization.json.JsonObject>(argsJson)
+                            .mapValues { (_, value) ->
+                                when (value) {
+                                    is kotlinx.serialization.json.JsonPrimitive -> {
+                                        value.booleanOrNull ?: value.longOrNull ?: value.content
+                                    }
+                                    else -> value.toString()
+                                }
+                            }
+                    } catch (e: Exception) {
+                        terminal.println(red("Invalid JSON arguments: ${e.message}"))
+                        return
+                    }
+                } else {
+                    emptyMap()
+                }
+
+                terminal.println(cyan("Executing $fullName..."))
+
+                val result = mcpManager.executeToolByFullName(fullName, arguments)
+                result.fold(
+                    onSuccess = { output ->
+                        terminal.println(green("Result:"))
+                        terminal.println(output)
+                    },
+                    onFailure = { error ->
+                        terminal.println(red("Error: ${error.message}"))
+                    }
+                )
+            }
+
+            "read" -> {
+                if (subArgs.isBlank()) {
+                    terminal.println(red("Usage: /mcp read <file_path>"))
+                    return
+                }
+
+                val result = mcpManager.readFile(subArgs.trim())
+                result.fold(
+                    onSuccess = { content ->
+                        terminal.println(content)
+                    },
+                    onFailure = { error ->
+                        terminal.println(red("Error: ${error.message}"))
+                    }
+                )
+            }
+
+            "write" -> {
+                val writeParts = subArgs.split("\\s+".toRegex(), 2)
+                val path = writeParts.getOrNull(0)
+                val content = writeParts.getOrNull(1)
+
+                if (path.isNullOrBlank() || content.isNullOrBlank()) {
+                    terminal.println(red("Usage: /mcp write <file_path> <content>"))
+                    return
+                }
+
+                val result = mcpManager.writeFile(path, content)
+                result.fold(
+                    onSuccess = { message ->
+                        terminal.println(green(message))
+                    },
+                    onFailure = { error ->
+                        terminal.println(red("Error: ${error.message}"))
+                    }
+                )
+            }
+
+            "run" -> {
+                if (subArgs.isBlank()) {
+                    terminal.println(red("Usage: /mcp run <command>"))
+                    terminal.println(gray("Use /mcp exec terminal:list_allowed_commands to see allowed commands."))
+                    return
+                }
+
+                val command = subArgs.trim()
+
+                if (!mcpManager.isCommandAllowed(command)) {
+                    terminal.println(red("Error: Command not allowed by security policy."))
+                    terminal.println(gray("Use /mcp exec terminal:list_allowed_commands to see allowed commands."))
+                    return
+                }
+
+                terminal.println(cyan("Executing: $command"))
+                terminal.println("-".repeat(50))
+
+                val result = mcpManager.executeCommand(command, 30000)
+                result.fold(
+                    onSuccess = { output ->
+                        terminal.println(output)
+                    },
+                    onFailure = { error ->
+                        terminal.println(red("Error: ${error.message}"))
+                    }
+                )
+            }
+
+            else -> {
+                terminal.println(yellow("Unknown MCP command: $subCommand"))
+                terminal.println(gray("Use: status, list, tools, connect, disconnect, exec, read, write, run"))
+            }
+        }
+    }
+
+    /**
      * Show help message.
      */
     private fun showHelp() {
@@ -627,6 +884,22 @@ class ReplController {
         terminal.println("  ${cyan("/invariant toggle")} Enable/disable invariant")
         terminal.println("  ${cyan("/shell <cmd>")}     Execute shell command")
         terminal.println()
+        terminal.println(bold("MCP Commands (Model Context Protocol):"))
+        terminal.println()
+        terminal.println("  ${cyan("/mcp status")}          Show MCP servers status")
+        terminal.println("  ${cyan("/mcp list")}            List available MCP servers")
+        terminal.println("  ${cyan("/mcp tools")}           List all available MCP tools")
+        terminal.println("  ${cyan("/mcp tools -v")}        List tools with descriptions")
+        terminal.println("  ${cyan("/mcp connect <n> <url>")} Connect to external MCP server")
+        terminal.println("  ${cyan("/mcp disconnect <srv>")} Disconnect from server")
+        terminal.println("  ${cyan("/mcp disconnect -a")}   Disconnect from all servers")
+        terminal.println("  ${cyan("/mcp exec <srv:tool>")} Execute MCP tool")
+        terminal.println("  ${cyan("/mcp read <path>")}     Read file via filesystem MCP")
+        terminal.println("  ${cyan("/mcp write <p> <c>")}   Write file via filesystem MCP")
+        terminal.println("  ${cyan("/mcp run <command>")}   Execute terminal command")
+        terminal.println()
+        terminal.println(gray("  Built-in servers: filesystem, terminal"))
+        terminal.println()
         terminal.println(bold("Task Dialog Flow:"))
         terminal.println()
         terminal.println("  When a task is created, you'll be asked to approve the plan.")
@@ -636,7 +909,8 @@ class ReplController {
         terminal.println(bold("Chat Mode:"))
         terminal.println()
         terminal.println("  Type any message to chat with AI")
-        terminal.println("  Example: \"Create a new Kotlin class for user management\"")
+        terminal.println("  The agent can use MCP tools automatically when needed")
+        terminal.println("  Example: \"Read README.md and summarize it\"")
         terminal.println()
         terminal.println(bold("Keyboard Shortcuts:"))
         terminal.println()

@@ -4,7 +4,7 @@
 
 ## Overview
 
-Simple Code Agent теперь работает как CLI приложение (Command Line Interface), для работы в терминале. Приложение предоставляет:
+Simple Code Agent работает как CLI приложение (Command Line Interface) для работы в терминале. Приложение предоставляет:
 
 - **REPL интерактивный режим** - полноценный терминальный интерфейс для общения с AI-агентом
 - **Выполнение системных команд** - работа с файловой системой через whitelist
@@ -12,6 +12,7 @@ Simple Code Agent теперь работает как CLI приложение 
 - **Профиль пользователя** - настройка персонализации
 - **Система памяти** - управление контекстом и памятью агента
 - **Task State Machine** - управление задачами
+- **MCP (Model Context Protocol)** - интеграция с внешними инструментами и серверами
 
 ## Запуск
 
@@ -75,6 +76,12 @@ Simple Code Agent теперь работает как CLI приложение 
 ./gradlew :composeApp:run --args="shell ls -la"
 ./gradlew :composeApp:run --args="shell find . -name \"*.kt\""
 ./gradlew :composeApp:run --args="shell cat README.md"
+
+# MCP команды
+./gradlew :composeApp:run --args="mcp list"
+./gradlew :composeApp:run --args="mcp status"
+./gradlew :composeApp:run --args="mcp tools"
+./gradlew :composeApp:run --args="mcp read README.md"
 ```
 
 ## REPL интерактивный режим
@@ -103,8 +110,231 @@ Email: user@example.com
 - `/memory [list|clear]` - управление памятью
 - `/task [list|create|status]` - управление задачами
 - `/shell <command>` - выполнить системную команду
+- `/mcp [list|status|tools|...]` - MCP команды
 - `/help` - показать справку
 - `/exit` или `Ctrl+D` - выход
+
+## MCP (Model Context Protocol)
+
+MCP - это протокол для подключения AI-агентов к внешним инструментам и серверам.
+
+### Встроенные серверы:
+
+| Server | Description |
+|--------|-------------|
+| `filesystem` | File operations (read, write, list, search) |
+| `terminal` | Command execution (safe commands only) |
+
+### MCP команды:
+
+```bash
+# Список доступных серверов
+./agent mcp list
+
+# Статус MCP инфраструктуры
+./agent mcp status
+
+# Список всех инструментов
+./agent mcp tools
+
+# Инструменты конкретного сервера
+./agent mcp tools -s filesystem
+./agent mcp tools -s terminal
+
+# Быстрое чтение файла
+./agent mcp read /path/to/file.txt
+
+# Быстрая запись файла
+./agent mcp write /path/to/file.txt "Content"
+
+# Выполнение команды
+./agent mcp run git status
+./agent mcp run --timeout 60000 npm test
+
+# Выполнение инструмента
+./agent mcp exec filesystem:list_directory '{"path": "/project"}'
+./agent mcp exec filesystem:search_files '{"path": "/project", "pattern": "*.kt"}'
+./agent mcp exec terminal:execute_command '{"command": "ls -la"}'
+./agent mcp exec terminal:list_allowed_commands
+
+# Подключение к внешнему серверу
+./agent mcp connect github --url http://localhost:3000/mcp
+./agent mcp connect github  # использует preset
+
+# Отключение
+./agent mcp disconnect github
+./agent mcp disconnect --all
+```
+
+### Filesystem MCP Tools:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Чтение файла |
+| `write_file` | Запись файла |
+| `list_directory` | Листинг директории |
+| `search_files` | Поиск файлов по паттерну |
+| `delete_file` | Удаление файла (требует подтверждения) |
+| `create_directory` | Создание директории |
+| `file_exists` | Проверка существования |
+| `copy_file` | Копирование файла |
+
+### Terminal MCP Tools:
+
+| Tool | Description |
+|------|-------------|
+| `execute_command` | Выполнение команды |
+| `run_shell_script` | Запуск shell скрипта |
+| `check_command_available` | Проверка доступности команды |
+| `list_allowed_commands` | Список разрешенных команд |
+| `get_environment_info` | Информация об окружении |
+
+### Внешние MCP серверы:
+
+```bash
+# GitHub MCP Server
+npx -y @modelcontextprotocol/server-github
+
+# PostgreSQL MCP Server
+export POSTGRES_CONNECTION_STRING=postgresql://user:pass@localhost:5432/db
+npx -y @modelcontextprotocol/server-postgres
+
+# Memory MCP Server
+npx -y @modelcontextprotocol/server-memory
+```
+
+## MCP (Model Context Protocol)
+
+### Обзор MCP
+
+MCP (Model Context Protocol) - это стандартизированный способ подключения AI-агентов к внешним инструментам и ресурсам.
+
+### Архитектура MCP
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    McpManager (Unified API)                  │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │              getAllAvailableTools()                      │ │
+│  │              executeToolByFullName()                     │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                              │                               │
+│           ┌──────────────────┼──────────────────┐           │
+│           ▼                  ▼                  ▼           │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐ │
+│  │ FilesystemMcp  │  │ TerminalMcp    │  │ McpClient      │ │
+│  │ Server         │  │ Server         │  │                │ │
+│  │ (Built-in)     │  │ (Built-in)     │  │ (External)     │ │
+│  │                │  │                │  │                │ │
+│  │ - read_file    │  │ - execute_cmd  │  │ - HTTP/SSE     │ │
+│  │ - write_file   │  │ - run_script   │  │ - GitHub       │ │
+│  │ - list_dir     │  │ - check_cmd    │  │ - PostgreSQL   │ │
+│  │ - search_files │  │ - list_allowed │  │ - Memory       │ │
+│  └────────────────┘  └────────────────┘  └────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### CLI команды MCP
+
+```bash
+# Список доступных серверов
+./agent mcp list
+
+# Статус MCP инфраструктуры
+./agent mcp status
+
+# Список всех инструментов
+./agent mcp tools
+./agent mcp tools -s filesystem  # Только filesystem
+./agent mcp tools -v             # Подробно
+
+# Быстрые команды
+./agent mcp read /path/to/file.txt
+./agent mcp write /path/to/file.txt "Content"
+./agent mcp run git status
+
+# Выполнение инструментов
+./agent mcp exec filesystem:read_file '{"path": "/file.txt"}'
+./agent mcp exec filesystem:write_file '{"path": "/file.txt", "content": "Hello"}'
+./agent mcp exec filesystem:list_directory '{"path": "/project"}'
+./agent mcp exec filesystem:search_files '{"path": "/project", "pattern": "*.kt"}'
+./agent mcp exec terminal:execute_command '{"command": "ls -la"}'
+./agent mcp exec terminal:list_allowed_commands
+
+# Подключение к внешним серверам
+./agent mcp connect github --url http://localhost:3000/mcp
+./agent mcp connect custom --url http://localhost:4000/mcp
+
+# Отключение
+./agent mcp disconnect github
+./agent mcp disconnect --all
+```
+
+### Built-in MCP Servers
+
+#### Filesystem MCP Server
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `read_file` | Читает файл | `path` (required) |
+| `write_file` | Записывает в файл | `path`, `content` (required) |
+| `list_directory` | Листинг директории | `path` (required) |
+| `search_files` | Поиск файлов | `path`, `pattern` (required) |
+| `delete_file` | Удаляет файл | `path`, `confirm=true` (required) |
+| `create_directory` | Создает директорию | `path` (required) |
+| `file_exists` | Проверяет существование | `path` (required) |
+| `copy_file` | Копирует файл | `source`, `destination` (required) |
+
+#### Terminal MCP Server
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `execute_command` | Выполняет команду | `command`, `timeout`, `working_dir` |
+| `run_shell_script` | Запускает скрипт | `script_path`, `args`, `timeout` |
+| `check_command_available` | Проверяет команду | `command` |
+| `list_allowed_commands` | Список разрешенных | - |
+| `get_environment_info` | Информация об окружении | - |
+
+### MCP Безопасность
+
+#### Filesystem Security:
+- **Allowed Roots** - доступ только к разрешенным директориям
+- **Path Validation** - защита от path traversal атак
+- **No Directory Deletion** - запрет удаления директорий
+- **Confirmation Required** - подтверждение для удаления файлов
+
+#### Terminal Security:
+- **Command Whitelist** - только разрешенные команды
+- **Dangerous Patterns Blacklist** - блокировка rm -rf, sudo и т.д.
+- **Timeout Protection** - автоматическое завершение по таймауту
+- **Project-only Scripts** - скрипты только из директории проекта
+
+### Запуск внешних MCP серверов
+
+```bash
+# GitHub MCP (требует GITHUB_TOKEN)
+export GITHUB_TOKEN=ghp_xxx
+npx -y @modelcontextprotocol/server-github
+
+# PostgreSQL MCP
+export POSTGRES_CONNECTION_STRING=postgresql://user:pass@localhost:5432/db
+npx -y @modelcontextprotocol/server-postgres
+
+# Memory MCP (knowledge graph)
+npx -y @modelcontextprotocol/server-memory
+```
+
+### MCP Inspector (Debugging)
+
+```bash
+# Проверка Filesystem MCP
+npx -y @modelcontextprotocol/inspector java -cp app.jar ru.agent.mcp.server.FilesystemMcpServerKt
+
+# Проверка Terminal MCP
+npx -y @modelcontextprotocol/inspector java -cp app.jar ru.agent.mcp.server.TerminalMcpServerKt
+```
+
+---
 
 ## Безопасность Shell
 
@@ -113,7 +343,11 @@ Email: user@example.com
 ls, dir, pwd, cd, tree, cat, head, tail, less, more,
 find, locate, whereis, which, grep, egrep, fgrep, rg,
 stat, file, du, df, ps, top, htop,
-whoami, hostname, uname, date, echo
+whoami, hostname, uname, date, echo,
+gradlew, gradle, mvn, npm, yarn, cargo, go, make,
+python, python3, node, ruby, java, kotlin,
+git, svn, hg,
+curl, wget, docker, kubectl
 ```
 
 ### Blacklist опасных паттернов:
@@ -121,6 +355,7 @@ whoami, hostname, uname, date, echo
 - `sudo` - выполнение от имени суперпользователя
 - `chmod 777` - небезопасные права
 - `mkfs` - форматирование диска
+- `curl | bash` - удаленное выполнение кода
 - Shell injection символы (`;`, `|`, `&`, ```, `$()`)
 
 ## Архитектура

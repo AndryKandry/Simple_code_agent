@@ -1,6 +1,7 @@
 package ru.agent.features.chat.data.repository
 
 import co.touchlab.kermit.Logger
+import co.touchlab.kermit.Severity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
@@ -8,6 +9,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import ru.agent.common.wrappers.ResultWrapper
 import ru.agent.core.handlers.NetworkErrorHandling
+import ru.agent.core.platform.getWorkingDirectory
 import ru.agent.core.time.currentTimeMillis
 import ru.agent.features.chat.data.local.dao.ChatSessionDao
 import ru.agent.features.chat.data.local.dao.MessageDao
@@ -17,11 +19,13 @@ import ru.agent.features.chat.data.local.mapper.MessageMapper.toEntity
 import ru.agent.features.chat.data.remote.DeepSeekApiClient
 import ru.agent.features.chat.data.remote.dto.ChatRequest
 import ru.agent.features.chat.data.remote.dto.MessageDto
+import ru.agent.features.chat.data.remote.dto.ToolDefinitionDto
 import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.chat.domain.model.SenderType
 import ru.agent.features.chat.domain.optimization.ContextOptimizer
 import ru.agent.features.chat.domain.optimization.OptimizedContext
 import ru.agent.features.chat.domain.repository.ChatRepository
+import ru.agent.features.chat.domain.tools.ToolExecutor
 import ru.agent.features.invariant.domain.exception.InvariantViolationException
 import ru.agent.features.invariant.domain.model.CheckType
 import ru.agent.features.invariant.domain.service.ValidationService
@@ -35,6 +39,19 @@ import kotlin.uuid.Uuid
  *
  * Uses DeepSeek API for AI responses and stores all messages in local database.
  * Includes context optimization to manage token limits.
+ * Supports function calling (tools) via MCP integration.
+ *
+ * @property deepSeekApiClient API client for DeepSeek
+ * @property networkErrorHandling Handler for network errors
+ * @property messageDao DAO for message persistence
+ * @property chatSessionDao DAO for chat session persistence
+ * @property contextOptimizer Optimizer for context window management
+ * @property validateInvariantViolationUseCase Use case for validating invariants
+ * @property getMemoryContextUseCase Use case for retrieving memory context
+ * @property validationService Service for validation
+ * @property toolExecutor Executor for MCP tools
+ * @property maxToolIterations Maximum iterations for tool calls (default: 10)
+ * @property toolLoopHistorySize Size of history for loop detection (default: 10)
  */
 class ChatRepositoryImpl(
     private val deepSeekApiClient: DeepSeekApiClient,
@@ -44,14 +61,224 @@ class ChatRepositoryImpl(
     private val contextOptimizer: ContextOptimizer,
     private val validateInvariantViolationUseCase: ValidateInvariantViolationUseCase,
     private val getMemoryContextUseCase: GetMemoryContextUseCase,
-    private val validationService: ValidationService
+    private val validationService: ValidationService,
+    private val toolExecutor: ToolExecutor,
+    private val maxToolIterations: Int = DEFAULT_MAX_TOOL_ITERATIONS,
+    private val toolLoopHistorySize: Int = DEFAULT_TOOL_LOOP_HISTORY_SIZE
 ) : ChatRepository {
 
     private val logger = Logger.withTag("ChatRepository")
 
+    companion object {
+        /** Maximum tool call iterations to prevent infinite loops */
+        const val DEFAULT_MAX_TOOL_ITERATIONS = 10
+
+        /** Size of history for detecting tool call loops */
+        const val DEFAULT_TOOL_LOOP_HISTORY_SIZE = 10
+
+        /** Environment variable for log level configuration */
+        const val ENV_LOG_LEVEL = "AGENT_LOG_LEVEL"
+
+        /** Environment variable for debug mode */
+        const val ENV_DEBUG_MODE = "AGENT_DEBUG"
+    }
+
+    /**
+     * Get working directory name for display purposes.
+     * Returns the last directory component for human-readable display.
+     *
+     * @param path Full path
+     * @return Last directory component name
+     */
+    private fun getWorkingDirectoryName(path: String): String {
+        if (path.isBlank()) return "<unknown>"
+        val lastComponent = path.substringAfterLast('/', path.substringAfterLast('\\'))
+        return if (lastComponent.isNotBlank()) lastComponent else "<root>"
+    }
+
+    /**
+     * Build tool instructions system prompt dynamically based on available tools.
+     *
+     * @param workingDirectory Current working directory (FULL ABSOLUTE PATH)
+     * @param tools List of available tools
+     * @return Formatted system prompt with tool instructions
+     */
+    private suspend fun buildToolInstructions(
+        workingDirectory: String,
+        tools: List<ToolDefinitionDto>
+    ): String {
+        val projectName = getWorkingDirectoryName(workingDirectory)
+
+        // Dynamically generate tools description
+        val toolsDescription = if (tools.isEmpty()) {
+            "No tools currently available."
+        } else {
+            tools.joinToString("\n") { tool ->
+                val params = tool.function.parameters
+                    ?.get("properties")
+                    ?.let { props ->
+                        @Suppress("UNCHECKED_CAST")
+                        (props as? Map<String, Any>)?.keys?.joinToString(", ") ?: ""
+                    } ?: "none"
+                "- ${tool.function.name}: ${tool.function.description.ifBlank { "No description" }} (params: $params)"
+            }
+        }
+
+        return """
+            You are an AI assistant with access to tools for file operations and command execution.
+
+            WORKING DIRECTORY (FULL ABSOLUTE PATH): $workingDirectory
+            Project name: $projectName
+
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║                    CRITICAL: YOU HAVE ACCESS TO TOOLS                        ║
+            ╠══════════════════════════════════════════════════════════════════════════════╣
+            ║ DO NOT answer from memory or training data when user asks about files.       ║
+            ║ DO NOT guess, estimate, or fabricate ANY file content.                       ║
+            ║ YOU MUST use tools to access real files on the filesystem.                   ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
+
+            === MANDATORY TOOL USAGE - NO EXCEPTIONS ===
+
+            If user mentions ANY of these actions, you MUST call the tool FIRST:
+            - "read", "show", "open", "display", "what is in", "contents of" + file name
+            - "list", "show files", "directory contents", "what files"
+            - "write", "create", "modify", "edit" + file name
+            - "search", "find", "look for" + file pattern
+
+            BEFORE responding with ANY file content:
+            1. Call filesystem_read_file(path="FULL_ABSOLUTE_PATH")
+            2. WAIT for the tool result
+            3. ONLY THEN use the ACTUAL content from the tool result
+
+            IF YOU RESPOND WITH FILE CONTENT WITHOUT CALLING THE TOOL FIRST, YOU ARE WRONG.
+
+            === PATH REQUIREMENTS ===
+            ALWAYS use FULL ABSOLUTE PATH starting with: $workingDirectory
+            Example: $workingDirectory/README.md (NOT just "README.md" or "./README.md")
+
+            === AVAILABLE TOOLS ===
+            $toolsDescription
+
+            === EXAMPLE INTERACTIONS ===
+
+            User: "Прочитай файл README.md"
+            YOUR FIRST ACTION: Call filesystem_read_file(path="$workingDirectory/README.md")
+            THEN: Report the actual content returned by the tool
+
+            User: "Read the README"
+            YOUR FIRST ACTION: Call filesystem_read_file(path="$workingDirectory/README.md")
+            THEN: Report the actual content returned by the tool
+
+            User: "What's in the config file?"
+            YOUR FIRST ACTION: Call filesystem_read_file(path="$workingDirectory/config")
+            THEN: Report the actual content returned by the tool
+
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║  WRONG: "I read the file, here's what it contains: [made up content]"        ║
+            ║  CORRECT: [Call tool first, then respond with actual tool result]            ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
+        """.trimIndent()
+    }
+
+    /**
+     * Detect if user message requires file operations.
+     * Used to determine if we should force tool usage.
+     *
+     * @param message User message to analyze
+     * @return true if message likely requires file tools
+     */
+    private fun isFileOperationRequest(message: String): Boolean {
+        val lowerMessage = message.lowercase()
+
+        // File reading keywords
+        val readKeywords = listOf(
+            "read", "прочитай", "читай", "прочитать",
+            "show", "покажи", "показать",
+            "open", "открой", "открыть",
+            "display", "отобрази",
+            "contents", "содержимое", "содержание",
+            "what is in", "что в", "что внутри",
+            "file", "файл", "файла",
+            "list", "лист", "список",
+            "directory", "директория", "папка", "каталог"
+        )
+
+        // Check for file operation intent
+        val hasReadIntent = readKeywords.any { lowerMessage.contains(it) }
+
+        // Check for specific file references (has extension or common file names)
+        val hasFileReference = lowerMessage.contains(Regex("""\.(md|txt|kt|java|py|js|json|xml|yaml|yml|gradle|properties|conf|cfg)""")) ||
+                lowerMessage.contains("readme") ||
+                lowerMessage.contains("config") ||
+                lowerMessage.contains("build") ||
+                lowerMessage.contains("settings")
+
+        return hasReadIntent && hasFileReference
+    }
+
+    /**
+     * Prepare messages for API request with system prompt and context.
+     *
+     * @param sessionId Session ID for context
+     * @param additionalMessage Optional additional message to add
+     * @param includeTools Whether to include tool instructions in system prompt
+     * @return List of prepared messages
+     */
+    private suspend fun prepareMessages(
+        sessionId: String,
+        additionalMessage: String? = null,
+        includeTools: Boolean = false
+    ): MutableList<MessageDto> {
+        val optimizedContext = getOptimizedContext(sessionId)
+        val memoryContext = getMemoryContextUseCase(sessionId)
+        val systemPrompt = memoryContext.toSystemPrompt()
+
+        val messages = mutableListOf<MessageDto>()
+
+        // Build full system prompt
+        val fullSystemPrompt = buildString {
+            if (systemPrompt.isNotBlank()) {
+                append(systemPrompt)
+                append("\n\n")
+            }
+            if (includeTools) {
+                val workingDirectory = getWorkingDirectory()
+                val tools = toolExecutor.getToolsForApi()
+                append(buildToolInstructions(workingDirectory, tools))
+            }
+        }
+
+        // Add system prompt
+        if (fullSystemPrompt.isNotBlank()) {
+            messages.add(MessageDto(role = "system", content = fullSystemPrompt))
+        }
+
+        // Add conversation messages
+        messages.addAll(optimizedContext.messages.map { msg ->
+            MessageDto(
+                role = when (msg.senderType) {
+                    SenderType.USER -> "user"
+                    SenderType.ASSISTANT -> "assistant"
+                    SenderType.SYSTEM -> "system"
+                },
+                content = msg.content
+            )
+        })
+
+        // Add additional message if provided
+        additionalMessage?.let {
+            messages.add(MessageDto(role = "user", content = it))
+        }
+
+        return messages
+    }
+
     /**
      * Ensure the session exists before performing operations.
      * Creates the session if it doesn't exist.
+     *
+     * @param sessionId Session ID to ensure exists
      */
     private suspend fun ensureSessionExists(sessionId: String) {
         val existingSession = chatSessionDao.getSessionById(sessionId)
@@ -88,7 +315,6 @@ class ChatRepositoryImpl(
 
                 if (requestValidation.shouldBlock) {
                     logger.w { "User request blocked by invariant: ${requestValidation.blockMessage}" }
-                    // Remove any partially saved data
                     return@withContext ResultWrapper.Error(
                         throwable = InvariantViolationException(
                             message = requestValidation.blockMessage ?: "Invariant violation",
@@ -98,7 +324,6 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                // Log warnings if any
                 if (requestValidation.hasViolations) {
                     logger.w { "User request has warnings: ${requestValidation.violations.size}" }
                 }
@@ -117,68 +342,198 @@ class ChatRepositoryImpl(
 
                 // Step 3: Increment message count in session
                 chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
-                logger.d { "Session message count incremented for session: $sessionId" }
 
-                // Step 4: Get optimized context
-                val optimizedContext = getOptimizedContext(sessionId)
-                logger.d {
-                    "Context optimized for API request. " +
-                    "Strategy: ${optimizedContext.strategy}, " +
-                    "Tokens: ~${optimizedContext.estimatedTokens}, " +
-                    "Messages: ${optimizedContext.messages.size}"
+                // Step 4-6: Prepare messages with tools
+                val currentMessages = prepareMessages(sessionId, includeTools = true)
+                logger.i { "Sending request to DeepSeek API with ${currentMessages.size} messages" }
+
+                // Detect if user is asking for file operations
+                val isFileRequest = isFileOperationRequest(message)
+                if (isFileRequest) {
+                    logger.i { "Detected file operation request, will require tool usage" }
                 }
 
-                // Step 5: Get memory context for system prompt
-                val memoryContext = getMemoryContextUseCase(sessionId)
-                val systemPrompt = memoryContext.toSystemPrompt()
-                if (systemPrompt.isNotBlank()) {
-                    logger.d { "Memory context system prompt generated (${systemPrompt.length} chars)" }
+                // Step 7: Call DeepSeek API with tools
+                var iteration = 0
+                var finalResponse: ru.agent.features.chat.data.remote.dto.ChatResponse? = null
+                var finalContent: String? = null
+
+                // Enhanced loop detection: track recent tool call signatures
+                val toolCallHistory = mutableSetOf<String>()
+                val toolCallOrder = mutableListOf<String>()
+
+                // Track if model skipped tool on file request
+                var toolSkippedOnFileRequest = false
+
+                logger.i { "Fetching tools for API request..." }
+
+                while (iteration < maxToolIterations) {
+                    iteration++
+
+                    // Prepare request - ALWAYS with tools
+                    // Use tool_choice="required" for file operations on first iteration
+                    val response = try {
+                        val tools = toolExecutor.getToolsForApi()
+                        val shouldForceToolUse = isFileRequest && iteration == 1
+
+                        logger.i { "Sending request WITH ${tools.size} tools (iteration: $iteration, forceTool: $shouldForceToolUse)" }
+
+                        if (tools.isEmpty()) {
+                            logger.w { "No tools available, falling back to simple request" }
+                            val requestSimple = ChatRequest.simple(messages = currentMessages)
+                            deepSeekApiClient.sendMessage(requestSimple)
+                        } else if (shouldForceToolUse) {
+                            // Force tool usage for file operations
+                            logger.i { "Forcing tool usage with tool_choice=required" }
+                            val requestWithRequiredTools = ChatRequest.withRequiredTools(
+                                messages = currentMessages,
+                                tools = tools
+                            )
+                            deepSeekApiClient.sendMessage(requestWithRequiredTools)
+                        } else {
+                            val requestWithTools = ChatRequest.withTools(
+                                messages = currentMessages,
+                                tools = tools
+                            )
+                            deepSeekApiClient.sendMessage(requestWithTools)
+                        }
+                    } catch (e: Exception) {
+                        logger.e(throwable = e) { "Error during API request: ${e.message}" }
+                        messageDao.deleteMessageById(userMessage.id)
+                        return@withContext ResultWrapper.Error(
+                            throwable = e,
+                            message = e.message ?: "API request failed"
+                        )
+                    }
+                    logger.i { "Received response from DeepSeek API. ID: ${response.id}, choices: ${response.choices.size}, iteration: $iteration" }
+
+                    // Validate response
+                    if (response.choices.isEmpty()) {
+                        logger.e { "Empty response from API" }
+                        messageDao.deleteMessageById(userMessage.id)
+                        return@withContext ResultWrapper.Error(
+                            throwable = IllegalStateException("Empty response from API"),
+                            message = "Received empty response from DeepSeek API"
+                        )
+                    }
+
+                    // Check finish_reason first - if "stop", this is a complete response
+                    val finishReason = response.choices.firstOrNull()?.finishReason
+                    logger.i { "Response finish_reason: $finishReason" }
+
+                    // Special handling: if file request and model returned stop without tool calls
+                    if (finishReason == "stop" && isFileRequest && !response.hasToolCalls()) {
+                        if (iteration == 1) {
+                            // First attempt - model skipped tool, add explicit instruction
+                            logger.w { "Model skipped tool call on file request! Adding explicit instruction." }
+                            toolSkippedOnFileRequest = true
+
+                            // Add system message demanding tool use
+                            currentMessages.add(MessageDto(
+                                role = "system",
+                                content = """
+                                    CRITICAL ERROR: You were asked to perform a file operation but did not call any tool.
+
+                                    The user asked: "$message"
+
+                                    You MUST call filesystem_read_file tool NOW with the correct path.
+                                    DO NOT respond with text. Call the tool first.
+                                """.trimIndent()
+                            ))
+                            continue  // Retry
+                        } else if (toolSkippedOnFileRequest) {
+                            // Second attempt still failed - accept the response but log warning
+                            logger.w { "Model still not using tools after explicit instruction, accepting response" }
+                        }
+                    }
+
+                    if (finishReason == "stop") {
+                        logger.i { "AI finished generation (finish_reason=stop), returning final response" }
+                        finalResponse = response
+                        finalContent = response.choices.firstOrNull()?.message?.content
+                        break
+                    }
+
+                    // Check if response has tool calls
+                    if (response.hasToolCalls()) {
+                        logger.i { "Response contains tool calls, executing..." }
+
+                        // Add assistant message with tool calls to history
+                        currentMessages.add(response.choices.first().message)
+
+                        // Execute all tool calls
+                        val toolCalls = response.getAllToolCalls()
+
+                        // Enhanced loop detection: check for patterns in history
+                        val currentToolSignature = toolCalls.joinToString(";") {
+                            "${it.function.name}:${it.function.arguments.hashCode()}"
+                        }
+
+                        // Check for immediate repetition
+                        val lastSignature = toolCallOrder.lastOrNull()
+                        if (currentToolSignature == lastSignature) {
+                            logger.w { "Detected immediate repeated tool call, forcing text response" }
+                            currentMessages.add(MessageDto(
+                                role = "system",
+                                content = "IMPORTANT: You just called this exact tool. Provide a text response to the user NOW without calling any more tools."
+                            ))
+                        }
+                        // Check for loop pattern (A->B->A pattern)
+                        else if (currentToolSignature in toolCallHistory) {
+                            logger.w { "Detected tool call loop pattern (signature seen before), forcing text response" }
+                            currentMessages.add(MessageDto(
+                                role = "system",
+                                content = "IMPORTANT: You are in a tool call loop. Stop calling tools and provide a text response to the user NOW."
+                            ))
+                        }
+
+                        // Update history with LRU eviction
+                        toolCallHistory.add(currentToolSignature)
+                        toolCallOrder.add(currentToolSignature)
+                        if (toolCallOrder.size > toolLoopHistorySize) {
+                            val removed = toolCallOrder.removeAt(0)
+                            toolCallHistory.remove(removed)
+                        }
+
+                        for (toolCall in toolCalls) {
+                            logger.i { "Executing tool: ${toolCall.function.name} with args: ${toolCall.function.arguments}" }
+
+                            val result = toolExecutor.executeToolCall(toolCall)
+                            val toolResult = result.getOrDefault("Error: ${result.exceptionOrNull()?.message}")
+
+                            logger.i { "Tool ${toolCall.function.name} result (first 500 chars): ${toolResult.take(500)}" }
+
+                            // Add tool result to messages
+                            currentMessages.add(
+                                MessageDto.toolResult(
+                                    toolCallId = toolCall.id,
+                                    name = toolCall.function.name,
+                                    content = toolResult
+                                )
+                            )
+                        }
+
+                        continue
+                    }
+
+                    // No tool calls - this is the final response
+                    finalResponse = response
+                    finalContent = response.choices.firstOrNull()?.message?.content
+                    break
                 }
 
-                // Step 6: Prepare API request with optimized messages and system prompt
-                val messages = mutableListOf<MessageDto>()
-
-                // Add system prompt if available
-                if (systemPrompt.isNotBlank()) {
-                    messages.add(MessageDto(role = "system", content = systemPrompt))
-                }
-
-                // Add conversation messages
-                messages.addAll(optimizedContext.messages.map { msg ->
-                    MessageDto(
-                        role = when (msg.senderType) {
-                            SenderType.USER -> "user"
-                            SenderType.ASSISTANT -> "assistant"
-                            SenderType.SYSTEM -> "system"
-                        },
-                        content = msg.content
-                    )
-                })
-
-                val request = ChatRequest(messages = messages)
-                logger.i { "Sending request to DeepSeek API with ${messages.size} messages (system: ${systemPrompt.isNotBlank()})" }
-
-                // Step 7: Call DeepSeek API
-                val response = deepSeekApiClient.sendMessage(request)
-                logger.i { "Received response from DeepSeek API. ID: ${response.id}, choices: ${response.choices.size}" }
-
-                // Validate response
-                if (response.choices.isEmpty()) {
-                    logger.e { "Empty response from API" }
-                    // Remove user message on error
-                    messageDao.deleteMessageById(userMessage.id)
-                    return@withContext ResultWrapper.Error(
-                        throwable = IllegalStateException("Empty response from API"),
-                        message = "Received empty response from DeepSeek API"
-                    )
+                // Check if we exceeded max iterations
+                if (finalContent == null && iteration >= maxToolIterations) {
+                    logger.w { "Max tool iterations reached ($maxToolIterations)" }
+                    finalContent = "Превышено максимальное количество вызовов инструментов ($maxToolIterations). " +
+                            "Возможно, возникла циклическая зависимость при обработке запроса. " +
+                            "Попробуйте упростить запрос или задать вопрос иначе."
                 }
 
                 // === Validate AI response against invariants ===
-                // FIX: Safe null handling for AI response content
-                val aiResponse = response.choices.firstOrNull()?.message?.content
+                val aiResponse = finalContent
                 if (aiResponse.isNullOrBlank()) {
                     logger.e { "Empty AI response content" }
-                    // Remove user message on error
                     messageDao.deleteMessageById(userMessage.id)
                     return@withContext ResultWrapper.Error(
                         throwable = IllegalStateException("Empty AI response content"),
@@ -193,10 +548,8 @@ class ChatRepositoryImpl(
 
                 if (responseValidation.shouldBlock) {
                     logger.w { "AI response blocked by invariant: ${responseValidation.blockMessage}" }
-                    // Remove user message since AI response is blocked
                     messageDao.deleteMessageById(userMessage.id)
 
-                    // Return a system message instead of the blocked response
                     val blockedMessage = Message(
                         id = Uuid.random().toString(),
                         content = "Сгенерированный ответ нарушает инвариант проекта:\n\n${responseValidation.blockMessage}\n\nПожалуйста, уточните запрос.",
@@ -204,18 +557,16 @@ class ChatRepositoryImpl(
                         timestamp = currentTimeMillis()
                     )
 
-                    // Don't save the blocked message, just return it
                     return@withContext ResultWrapper.Success(blockedMessage)
                 }
 
-                // Log warnings if any
                 if (responseValidation.hasViolations) {
                     logger.w { "AI response has warnings: ${responseValidation.violations.size}" }
                 }
 
                 // Step 8: Create and save assistant message
                 val assistantMessage = Message(
-                    id = response.id,
+                    id = finalResponse?.id ?: Uuid.random().toString(),
                     content = aiResponse,
                     senderType = SenderType.ASSISTANT,
                     timestamp = currentTimeMillis()
@@ -224,13 +575,11 @@ class ChatRepositoryImpl(
                 messageDao.insertMessage(assistantMessage.toEntity(sessionId))
                 logger.d { "Assistant message saved with ID: ${assistantMessage.id}" }
 
-                // Increment message count for assistant message
                 chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
 
-                // Step 9: Update session title if this was first exchange (2 messages)
+                // Step 9: Update session title if this was first exchange
                 val messageCount = messageDao.getMessageCount(sessionId)
                 if (messageCount == 2) {
-                    // This is the first exchange - update title based on user message
                     val newTitle = generateTitleFromMessage(message)
                     val session = chatSessionDao.getSessionById(sessionId)
                     if (session != null && session.title == "New Chat") {
@@ -263,13 +612,17 @@ class ChatRepositoryImpl(
     /**
      * Send a message to LLM without saving to chat history.
      * Used for internal operations like planning and validation.
+     *
+     * @param sessionId Session ID for context
+     * @param message Message to send
+     * @return Result containing the AI response
      */
     override suspend fun sendSilentMessage(sessionId: String, message: String): ResultWrapper<String> {
         logger.i { "sendSilentMessage called for session: $sessionId" }
 
         return withContext(Dispatchers.IO) {
             try {
-                // === NEW: Validate USER_REQUEST before sending ===
+                // Validate USER_REQUEST before sending
                 val requestValidation = validationService.validate(message, CheckType.USER_REQUEST)
                 if (requestValidation.shouldBlock) {
                     val blockMsg = requestValidation.blockMessage ?: "Validation blocked"
@@ -280,41 +633,13 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                // Get optimized context (without adding the silent message)
-                val optimizedContext = getOptimizedContext(sessionId)
+                // Prepare messages without tools for silent messages
+                val messages = prepareMessages(sessionId, additionalMessage = message, includeTools = false)
 
-                // Get memory context for system prompt
-                val memoryContext = getMemoryContextUseCase(sessionId)
-                val systemPrompt = memoryContext.toSystemPrompt()
-
-                // Prepare API request
-                val messages = mutableListOf<MessageDto>()
-
-                // Add system prompt if available
-                if (systemPrompt.isNotBlank()) {
-                    messages.add(MessageDto(role = "system", content = systemPrompt))
-                }
-
-                // Add conversation messages
-                messages.addAll(optimizedContext.messages.map { msg ->
-                    MessageDto(
-                        role = when (msg.senderType) {
-                            SenderType.USER -> "user"
-                            SenderType.ASSISTANT -> "assistant"
-                            SenderType.SYSTEM -> "system"
-                        },
-                        content = msg.content
-                    )
-                })
-
-                // Add the silent message
-                messages.add(MessageDto(role = "user", content = message))
-
-                val request = ChatRequest(messages = messages)
                 logger.i { "Sending silent request to DeepSeek API with ${messages.size} messages" }
 
                 // Call API
-                val response = deepSeekApiClient.sendMessage(request)
+                val response = deepSeekApiClient.sendMessage(ChatRequest(messages = messages))
 
                 if (response.choices.isEmpty()) {
                     logger.e { "Empty response from API" }
@@ -324,7 +649,6 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                // FIX: Safe null handling for response content
                 val responseContent = response.choices.firstOrNull()?.message?.content
                 if (responseContent.isNullOrBlank()) {
                     logger.e { "Empty response content in silent message" }
@@ -334,7 +658,7 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                // === NEW: Validate AI_RESPONSE after receiving ===
+                // Validate AI_RESPONSE after receiving
                 val responseValidation = validationService.validate(responseContent, CheckType.AI_RESPONSE)
                 if (responseValidation.shouldBlock) {
                     val blockMsg = responseValidation.blockMessage ?: "AI response blocked by validation"
@@ -362,13 +686,14 @@ class ChatRepositoryImpl(
 
     /**
      * Save a message directly to chat history without sending to LLM.
+     *
+     * @param sessionId Session ID
+     * @param message Message to save
      */
     override suspend fun saveMessage(sessionId: String, message: Message) {
         withContext(Dispatchers.IO) {
             logger.d { "saveMessage: Saving message to session $sessionId" }
             messageDao.insertMessage(message.toEntity(sessionId))
-
-            // Increment message count in session
             chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
             logger.d { "Message saved with ID: ${message.id}" }
         }
@@ -393,7 +718,6 @@ class ChatRepositoryImpl(
             logger.i { "clearHistory: Clearing messages for session $sessionId" }
             messageDao.deleteMessagesForSession(sessionId)
 
-            // Reset message count in session
             val session = chatSessionDao.getSessionById(sessionId)
             if (session != null) {
                 chatSessionDao.updateSession(
@@ -425,6 +749,9 @@ class ChatRepositoryImpl(
     /**
      * Generate a session title from the first user message.
      * Takes first 50 characters or first line, whichever is shorter.
+     *
+     * @param message User message to generate title from
+     * @return Generated title
      */
     private fun generateTitleFromMessage(message: String): String {
         val firstLine = message.lines().firstOrNull() ?: message

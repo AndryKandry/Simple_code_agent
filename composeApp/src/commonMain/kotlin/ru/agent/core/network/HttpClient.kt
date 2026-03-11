@@ -18,6 +18,7 @@ fun createHttpClient(): HttpClient {
                 ignoreUnknownKeys = true
                 prettyPrint = true
                 isLenient = true
+                encodeDefaults = true  // CRITICAL: ensures default values like "type" in tools are serialized
             })
         }
         install(Logging) {

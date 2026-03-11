@@ -227,6 +227,7 @@ class CliChatController(
             }
             is ResultWrapper.Error -> {
                 val throwable = result.throwable
+                logger.e(throwable = throwable) { "Error in processMessage: ${throwable?.message}" }
 
                 // Special handling for InvariantViolationException
                 if (throwable is InvariantViolationException) {
@@ -236,7 +237,7 @@ class CliChatController(
                     logger.w { "User request blocked by invariant: ${throwable.message}" }
                     CliChatResult.Error(userMessage)
                 } else {
-                    val errorMsg = result.message ?: "Unknown error"
+                    val errorMsg = result.message ?: throwable?.message ?: "Unknown error"
                     output("Ошибка: $errorMsg")
                     CliChatResult.Error(errorMsg)
                 }

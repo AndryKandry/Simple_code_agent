@@ -3,6 +3,13 @@ package ru.agent.features.chat.data.remote.dto
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/**
+ * Chat response from DeepSeek API.
+ *
+ * Supports:
+ * - Regular text responses
+ * - Function calling (tool_calls)
+ */
 @Serializable
 data class ChatResponse(
     @SerialName("id")
@@ -11,7 +18,21 @@ data class ChatResponse(
     val choices: List<Choice>,
     @SerialName("usage")
     val usage: Usage
-)
+) {
+    /**
+     * Check if response contains tool calls.
+     */
+    fun hasToolCalls(): Boolean {
+        return choices.any { it.hasToolCalls() }
+    }
+
+    /**
+     * Get all tool calls from all choices.
+     */
+    fun getAllToolCalls(): List<ToolCallDto> {
+        return choices.flatMap { it.message.toolCalls ?: emptyList() }
+    }
+}
 
 @Serializable
 data class Choice(
@@ -20,8 +41,15 @@ data class Choice(
     @SerialName("message")
     val message: MessageDto,
     @SerialName("finish_reason")
-    val finishReason: String
-)
+    val finishReason: String? = null
+) {
+    /**
+     * Check if this choice contains tool calls.
+     */
+    fun hasToolCalls(): Boolean {
+        return !message.toolCalls.isNullOrEmpty()
+    }
+}
 
 @Serializable
 data class Usage(

@@ -109,6 +109,14 @@ kotlin {
             implementation(libs.jline.reader)
             implementation(libs.jline.terminal)
             implementation(libs.jline.terminal.jna)
+
+            // Logging - SLF4J provider for Kermit
+            runtimeOnly("org.slf4j:slf4j-simple:2.0.7")
+
+            // MCP SDK
+            implementation(libs.mcp.sdk)
+            implementation(libs.okio)
+            implementation(libs.kotlinx.io.core)
         }
 
         iosMain.dependencies {
