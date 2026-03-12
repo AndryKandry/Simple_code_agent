@@ -145,6 +145,7 @@ class ToolExecutorImpl(
         return when (serverName) {
             "filesystem" -> getFilesystemToolSchema(toolName)
             "terminal" -> getTerminalToolSchema(toolName)
+            "scheduler" -> getSchedulerToolSchema(toolName)
             else -> {
                 logger.d { "Using default schema for unknown server: $serverName" }
                 getDefaultSchema()
@@ -270,6 +271,169 @@ class ToolExecutorImpl(
                 "execute_command" -> add("command")
                 "run_shell_script" -> add("script_path")
                 "check_command_available" -> add("command")
+            }
+        })
+    }
+
+    /**
+     * Get JSON schema for scheduler tools.
+     *
+     * @param toolName Name of the scheduler tool
+     * @return JSON schema with parameters
+     */
+    private fun getSchedulerToolSchema(toolName: String): JsonObject = buildJsonObject {
+        put("type", "object")
+        put("properties", buildJsonObject {
+            when (toolName) {
+                // === Creation tools ===
+                "schedule_reminder" -> {
+                    put("message", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Reminder message text to display")
+                    })
+                    put("cron", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Cron expression for scheduling (e.g., '* * * * *' for every minute, '0 9 * * *' for daily at 9am)")
+                    })
+                    put("name", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Optional name for the reminder task")
+                    })
+                    put("priority", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Task priority: LOW, NORMAL, HIGH")
+                        put("default", "NORMAL")
+                        put("enum", buildJsonArray {
+                            add("LOW"); add("NORMAL"); add("HIGH")
+                        })
+                    })
+                    put("tags", buildJsonObject {
+                        put("type", "array")
+                        put("description", "Optional tags for categorization")
+                        put("items", buildJsonObject { put("type", "string") })
+                    })
+                }
+                "schedule_command" -> {
+                    put("command", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Shell command to execute")
+                    })
+                    put("cron", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Cron expression for scheduling")
+                    })
+                    put("name", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Optional name for the command task")
+                    })
+                    put("working_dir", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Working directory for command execution")
+                    })
+                    put("timeout", buildJsonObject {
+                        put("type", "number")
+                        put("description", "Timeout in milliseconds")
+                        put("default", 30000)
+                    })
+                    put("tags", buildJsonObject {
+                        put("type", "array")
+                        put("description", "Optional tags for categorization")
+                        put("items", buildJsonObject { put("type", "string") })
+                    })
+                }
+                "schedule_mcp_tool" -> {
+                    put("server", buildJsonObject {
+                        put("type", "string")
+                        put("description", "MCP server name (e.g., 'filesystem', 'terminal')")
+                    })
+                    put("tool", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Tool name on the MCP server")
+                    })
+                    put("cron", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Cron expression for scheduling")
+                    })
+                    put("arguments", buildJsonObject {
+                        put("type", "object")
+                        put("description", "Arguments to pass to the tool")
+                    })
+                    put("name", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Optional name for the task")
+                    })
+                    put("tags", buildJsonObject {
+                        put("type", "array")
+                        put("description", "Optional tags for categorization")
+                        put("items", buildJsonObject { put("type", "string") })
+                    })
+                }
+
+                // === Query tools ===
+                "list_scheduled_tasks" -> {
+                    put("type", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Filter by task type: REMINDER, COMMAND, MCP_TOOL")
+                        put("enum", buildJsonArray {
+                            add("REMINDER"); add("COMMAND"); add("MCP_TOOL")
+                        })
+                    })
+                    put("status", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Filter by status: SCHEDULED, PAUSED, COMPLETED, CANCELLED, FAILED")
+                        put("enum", buildJsonArray {
+                            add("SCHEDULED"); add("PAUSED"); add("COMPLETED"); add("CANCELLED"); add("FAILED")
+                        })
+                    })
+                }
+                "get_task" -> {
+                    put("task_id", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Task ID to retrieve")
+                    })
+                }
+
+                // === Management tools ===
+                "cancel_task" -> {
+                    put("task_id", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Task ID to cancel")
+                    })
+                }
+                "pause_task" -> {
+                    put("task_id", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Task ID to pause")
+                    })
+                }
+                "resume_task" -> {
+                    put("task_id", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Task ID to resume")
+                    })
+                }
+                "get_task_history" -> {
+                    put("task_id", buildJsonObject {
+                        put("type", "string")
+                        put("description", "Task ID to get history for")
+                    })
+                    put("limit", buildJsonObject {
+                        put("type", "number")
+                        put("description", "Maximum number of history entries to return")
+                        put("default", 10)
+                    })
+                }
+            }
+        })
+        put("required", buildJsonArray {
+            when (toolName) {
+                "schedule_reminder" -> { add("message"); add("cron") }
+                "schedule_command" -> { add("command"); add("cron") }
+                "schedule_mcp_tool" -> { add("server"); add("tool"); add("cron") }
+                "get_task", "cancel_task", "pause_task", "resume_task" -> add("task_id")
+                "get_task_history" -> add("task_id")
+                // list_scheduled_tasks has no required params
+                else -> { }
             }
         })
     }

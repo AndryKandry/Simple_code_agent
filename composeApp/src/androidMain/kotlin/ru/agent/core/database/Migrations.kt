@@ -51,9 +51,65 @@ val MIGRATION_7_8_ANDROID = object : Migration(7, 8) {
 }
 
 /**
+ * Миграция с версии 8 на версию 9.
+ *
+ * Создает таблицы для планировщика задач (scheduler).
+ */
+val MIGRATION_8_9_ANDROID = object : Migration(8, 9) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Создаем таблицу scheduled_tasks
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id TEXT NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                cronExpression TEXT NOT NULL,
+                taskType TEXT NOT NULL,
+                taskDataJson TEXT NOT NULL,
+                status TEXT NOT NULL,
+                nextRunAt INTEGER,
+                lastRunAt INTEGER,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                tagsJson TEXT NOT NULL
+            )
+            """.trimIndent()
+        )
+
+        // Создаем индексы для scheduled_tasks
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_scheduled_tasks_status ON scheduled_tasks(status)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_scheduled_tasks_taskType ON scheduled_tasks(taskType)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_scheduled_tasks_nextRunAt ON scheduled_tasks(nextRunAt)")
+
+        // Создаем таблицу task_executions
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS task_executions (
+                id TEXT NOT NULL PRIMARY KEY,
+                taskId TEXT NOT NULL,
+                startedAt INTEGER NOT NULL,
+                completedAt INTEGER,
+                status TEXT NOT NULL,
+                result TEXT,
+                error TEXT,
+                FOREIGN KEY (taskId) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+
+        // Создаем индексы для task_executions
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_task_executions_taskId ON task_executions(taskId)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_task_executions_status ON task_executions(status)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_task_executions_startedAt ON task_executions(startedAt)")
+    }
+}
+
+/**
  * Список всех миграций для Android.
  */
 val ALL_MIGRATIONS_ANDROID = listOf(
     MIGRATION_6_7_ANDROID,
-    MIGRATION_7_8_ANDROID
+    MIGRATION_7_8_ANDROID,
+    MIGRATION_8_9_ANDROID
 )

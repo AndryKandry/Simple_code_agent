@@ -13,6 +13,7 @@ import ru.agent.mcp.client.McpServerConfig
 import ru.agent.mcp.client.McpServerConnection
 import ru.agent.mcp.client.McpToolInfo
 import ru.agent.mcp.server.FilesystemMcpServer
+import ru.agent.mcp.server.SchedulerMcpServer
 import ru.agent.mcp.server.TerminalMcpServer
 
 /**
@@ -41,6 +42,7 @@ import ru.agent.mcp.server.TerminalMcpServer
 class McpManager(
     private val filesystemServer: FilesystemMcpServer,
     private val terminalServer: TerminalMcpServer,
+    private val schedulerServer: SchedulerMcpServer,
     private val mcpClient: McpClient
 ) {
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -64,6 +66,11 @@ class McpManager(
             name = "terminal",
             description = "Terminal command execution",
             tools = terminalServer.getAvailableTools()
+        ),
+        BuiltInServer(
+            name = "scheduler",
+            description = "Task scheduling operations",
+            tools = schedulerServer.getAvailableTools()
         )
     )
 
@@ -292,6 +299,7 @@ class McpManager(
         return when (serverName) {
             "filesystem" -> executeFilesystemTool(toolName, arguments)
             "terminal" -> executeTerminalTool(toolName, arguments)
+            "scheduler" -> executeSchedulerTool(toolName, arguments)
             else -> {
                 if (mcpClient.isConnected(serverName)) {
                     val result = mcpClient.callTool(serverName, toolName, arguments)
@@ -396,6 +404,189 @@ class McpManager(
                 getEnvironmentInfo()
             }
             else -> Result.failure(IllegalArgumentException("Unknown terminal tool: $toolName"))
+        }
+    }
+
+    // === Scheduler Operations ===
+
+    /**
+     * Create a scheduled reminder.
+     */
+    fun createReminder(
+        message: String,
+        cron: String,
+        name: String? = null,
+        priority: String = "medium",
+        tags: List<String> = emptyList()
+    ): Result<String> {
+        return schedulerServer.createReminderSync(message, cron, name, priority, tags)
+    }
+
+    /**
+     * Create a scheduled command task.
+     */
+    fun createCommand(
+        command: String,
+        cron: String,
+        name: String? = null,
+        workingDir: String? = null,
+        timeout: Long = 30000,
+        tags: List<String> = emptyList()
+    ): Result<String> {
+        return schedulerServer.createCommandSync(command, cron, name, workingDir, timeout, tags)
+    }
+
+    /**
+     * Create a scheduled MCP tool task.
+     */
+    fun createMcpToolTask(
+        serverName: String,
+        toolName: String,
+        cron: String,
+        arguments: String = "{}",
+        name: String? = null,
+        tags: List<String> = emptyList()
+    ): Result<String> {
+        return schedulerServer.createMcpToolSync(serverName, toolName, cron, arguments, name, tags)
+    }
+
+    /**
+     * List scheduled tasks.
+     */
+    suspend fun listScheduledTasks(
+        typeFilter: String? = null,
+        statusFilter: String? = null
+    ): Result<String> {
+        return schedulerServer.listTasksSync(typeFilter, statusFilter)
+    }
+
+    /**
+     * Get scheduled task details.
+     */
+    suspend fun getScheduledTask(taskId: String): Result<String> {
+        return schedulerServer.getTaskSync(taskId)
+    }
+
+    /**
+     * Cancel a scheduled task.
+     */
+    suspend fun cancelScheduledTask(taskId: String): Result<String> {
+        return schedulerServer.cancelTaskSync(taskId)
+    }
+
+    /**
+     * Delete a scheduled task permanently.
+     */
+    suspend fun deleteScheduledTask(taskId: String): Result<String> {
+        return schedulerServer.deleteTaskSync(taskId)
+    }
+
+    /**
+     * Pause a scheduled task.
+     */
+    suspend fun pauseScheduledTask(taskId: String): Result<String> {
+        return schedulerServer.pauseTaskSync(taskId)
+    }
+
+    /**
+     * Resume a paused task.
+     */
+    suspend fun resumeScheduledTask(taskId: String): Result<String> {
+        return schedulerServer.resumeTaskSync(taskId)
+    }
+
+    /**
+     * Get execution history for a task.
+     */
+    suspend fun getTaskHistory(taskId: String, limit: Int = 10): Result<String> {
+        return schedulerServer.getHistorySync(taskId, limit)
+    }
+
+    private suspend fun executeSchedulerTool(toolName: String, arguments: Map<String, Any>): Result<String> {
+        return when (toolName) {
+            "schedule_reminder" -> {
+                val message = arguments["message"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'message' argument")
+                )
+                val cron = arguments["cron"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'cron' argument")
+                )
+                val name = arguments["name"] as? String
+                val priority = arguments["priority"] as? String ?: "medium"
+                val tags = (arguments["tags"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                createReminder(message, cron, name, priority, tags)
+            }
+            "schedule_command" -> {
+                val command = arguments["command"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'command' argument")
+                )
+                val cron = arguments["cron"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'cron' argument")
+                )
+                val name = arguments["name"] as? String
+                val workingDir = arguments["working_dir"] as? String
+                val timeout = (arguments["timeout"] as? Number)?.toLong() ?: 30000L
+                val tags = (arguments["tags"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                createCommand(command, cron, name, workingDir, timeout, tags)
+            }
+            "schedule_mcp_tool" -> {
+                val server = arguments["server"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'server' argument")
+                )
+                val tool = arguments["tool"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'tool' argument")
+                )
+                val cron = arguments["cron"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'cron' argument")
+                )
+                val args = arguments["arguments"] as? String ?: "{}"
+                val name = arguments["name"] as? String
+                val tags = (arguments["tags"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                createMcpToolTask(server, tool, cron, args, name, tags)
+            }
+            "list_scheduled_tasks" -> {
+                val typeFilter = arguments["type"] as? String
+                val statusFilter = arguments["status"] as? String
+                listScheduledTasks(typeFilter, statusFilter)
+            }
+            "get_task" -> {
+                val taskId = arguments["task_id"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'task_id' argument")
+                )
+                getScheduledTask(taskId)
+            }
+            "cancel_task" -> {
+                val taskId = arguments["task_id"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'task_id' argument")
+                )
+                cancelScheduledTask(taskId)
+            }
+            "delete_task" -> {
+                val taskId = arguments["task_id"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'task_id' argument")
+                )
+                deleteScheduledTask(taskId)
+            }
+            "pause_task" -> {
+                val taskId = arguments["task_id"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'task_id' argument")
+                )
+                pauseScheduledTask(taskId)
+            }
+            "resume_task" -> {
+                val taskId = arguments["task_id"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'task_id' argument")
+                )
+                resumeScheduledTask(taskId)
+            }
+            "get_task_history" -> {
+                val taskId = arguments["task_id"] as? String ?: return Result.failure(
+                    IllegalArgumentException("Missing 'task_id' argument")
+                )
+                val limit = (arguments["limit"] as? Number)?.toInt() ?: 10
+                getTaskHistory(taskId, limit)
+            }
+            else -> Result.failure(IllegalArgumentException("Unknown scheduler tool: $toolName"))
         }
     }
 

@@ -42,6 +42,9 @@ mcp-sdk = "0.4.0"
 kotlinx-io = "0.6.0"
 okio = "3.9.1"
 
+# Scheduler dependencies
+cron-utils = "9.2.1"
+
 [libraries]
 androidx-activityCompose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
 androidx-uitest-testManifest = { module = "androidx.compose.ui:ui-test-manifest", version.ref = "androidx-uiTest" }
@@ -102,6 +105,9 @@ jline-terminal-jna = { module = "org.jline:jline-terminal-jna", version.ref = "j
 mcp-sdk = { module = "io.modelcontextprotocol:kotlin-sdk", version.ref = "mcp-sdk" }
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
+
+# Scheduler libraries
+cron-utils = { module = "com.cronutils:cron-utils", version.ref = "cron-utils" }
 
 [plugins]
 

@@ -16,9 +16,12 @@ import ru.agent.cli.controller.CliChatResult
 import ru.agent.cli.formatters.OutputFormatter
 import ru.agent.cli.visualization.CliAnimator
 import ru.agent.cli.visualization.domain.ProgressState
+import ru.agent.features.memory.domain.usecase.ClearShortTermMemoryUseCase
 import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
+import ru.agent.features.memory.domain.repository.WorkingMemoryRepository
 import ru.agent.features.profile.domain.usecase.GetUserProfileUseCase
 import ru.agent.features.task.domain.repository.TaskStateRepository
+import ru.agent.scheduler.SchedulerEngine
 import java.io.IOException
 import kotlin.system.exitProcess
 
@@ -53,9 +56,14 @@ class ReplController {
     // Additional UseCases for slash commands
     private val getUserProfileUseCase: GetUserProfileUseCase by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
     private val getMemoryContextUseCase: GetMemoryContextUseCase by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
+    private val clearShortTermMemoryUseCase: ClearShortTermMemoryUseCase by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
 
     // Repository for cleanup
     private val taskStateRepository: TaskStateRepository by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
+    private val workingMemoryRepository: WorkingMemoryRepository by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
+
+    // MCP Manager for scheduler operations
+    private val mcpManager: ru.agent.mcp.McpManager by lazy { org.koin.java.KoinJavaComponent.getKoin().get() }
 
     private val replScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val historyFile = System.getProperty("user.home") + "/.agent_history"
@@ -109,10 +117,14 @@ class ReplController {
                         else -> {
                             // Clean the input from potential terminal artifacts
                             val cleanLine = cleanTerminalInput(line)
-                            // Echo user message with label using JLine writer
+                            // Clear the prompt line and move cursor to beginning
                             val writer = jlineTerminal.writer()
-                            writer.println()
-                            writer.println("\u001B[1;34mYou:\u001B[0m $cleanLine")
+                            writer.print("\u001B[1A\u001B[2K")  // Move up and clear line
+                            writer.print("\u001B[2K\r")         // Clear current line and move to start
+                            writer.flush()
+                            // Show user message with timestamp
+                            val timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                            writer.println("\u001B[90m$timestamp\u001B[0m \u001B[1;34mYou:\u001B[0m $cleanLine")
                             writer.flush()
                             processCommand(cleanLine)
                         }
@@ -184,6 +196,24 @@ class ReplController {
         terminal.println(gray("Version 1.0.0 | Chat with AI agent with Task State Machine"))
         terminal.println(gray("Type your message to chat, 'help' for commands, 'exit' to quit"))
         terminal.println()
+
+        // Start scheduler engine in background
+        startSchedulerEngine()
+    }
+
+    /**
+     * Start the scheduler engine for background task execution.
+     */
+    private fun startSchedulerEngine() {
+        try {
+            val engine: SchedulerEngine? = org.koin.java.KoinJavaComponent.getKoin().getOrNull(SchedulerEngine::class)
+            if (engine != null) {
+                engine.start()
+                terminal.println(gray("Scheduler engine started"))
+            }
+        } catch (e: Exception) {
+            terminal.println(yellow("Warning: Could not start scheduler engine: ${e.message}"))
+        }
     }
 
     /**
@@ -276,6 +306,7 @@ class ReplController {
             "shell" -> handleShellCommand(args)
             "invariant", "inv" -> handleInvariantCommand(args)
             "mcp" -> handleMcpCommand(args)
+            "scheduler", "sched" -> handleSchedulerCommand(args)
             "help" -> showHelp()
             "clear" -> clearScreen()
             "status" -> showStatus()
@@ -288,9 +319,6 @@ class ReplController {
      */
     private suspend fun processChatMessage(message: String) {
         val output: (String) -> Unit = { text ->
-            terminal.println()
-            terminal.print(bold(cyan("Agent")))
-            terminal.print(gray(": "))
             terminal.println(text)
         }
 
@@ -448,9 +476,180 @@ class ReplController {
                 val context = getMemoryContextUseCase(CliChatController.CLI_SESSION_ID)
                 terminal.println(OutputFormatter.formatMemory(context))
             }
-            "clear" -> terminal.println(blue("Memory clear not implemented yet"))
+            "clear" -> {
+                try {
+                    // Clear short-term memory (in-memory cache)
+                    clearShortTermMemoryUseCase(CliChatController.CLI_SESSION_ID)
+                    clearShortTermMemoryUseCase.clearAll()
+
+                    // Clear working memory (database)
+                    workingMemoryRepository.clearWorkingMemory(CliChatController.CLI_SESSION_ID)
+
+                    // Clear all task states for session
+                    val allTasks = taskStateRepository.getAllTasksForSession(CliChatController.CLI_SESSION_ID)
+                    allTasks.forEach { task ->
+                        taskStateRepository.deleteTaskState(task.taskId)
+                    }
+
+                    terminal.println(green("✓ Memory cleared successfully"))
+                    terminal.println(blue("  - Short-term memory cleared"))
+                    terminal.println(blue("  - Working memory cleared"))
+                    terminal.println(blue("  - ${allTasks.size} task states cleared"))
+                } catch (e: Exception) {
+                    terminal.println(red("Error clearing memory: ${e.message}"))
+                }
+            }
             else -> terminal.println(yellow("Unknown memory command. Use: show, clear"))
         }
+    }
+
+    /**
+     * Handle scheduler commands.
+     */
+    private suspend fun handleSchedulerCommand(args: String) {
+        val parts = args.trim().split("\\s+".toRegex())
+        when (parts.getOrNull(0)?.lowercase()) {
+            "list", "ls", "" -> {
+                val showAll = parts.contains("-a") || parts.contains("--all")
+                try {
+                    val statusFilter = if (showAll) null else "pending"
+                    val result = mcpManager.listScheduledTasks(statusFilter = statusFilter)
+                    if (result.isSuccess) {
+                        terminal.println(result.getOrDefault("No tasks found"))
+                    } else {
+                        terminal.println(red("Error: ${result.exceptionOrNull()?.message}"))
+                    }
+                } catch (e: Exception) {
+                    terminal.println(red("Error listing tasks: ${e.message}"))
+                }
+            }
+            "cancel" -> {
+                val taskId = parts.getOrNull(1)
+                if (taskId.isNullOrBlank()) {
+                    terminal.println(yellow("Usage: /scheduler cancel <task_id>"))
+                    return
+                }
+                try {
+                    val result = mcpManager.cancelScheduledTask(taskId)
+                    if (result.isSuccess) {
+                        terminal.println(green("✓ Task cancelled: $taskId"))
+                        terminal.println(result.getOrDefault(""))
+                    } else {
+                        terminal.println(red("Error: ${result.exceptionOrNull()?.message}"))
+                    }
+                } catch (e: Exception) {
+                    terminal.println(red("Error cancelling task: ${e.message}"))
+                }
+            }
+            "delete", "rm", "remove" -> {
+                val taskId = parts.getOrNull(1)
+                if (taskId.isNullOrBlank()) {
+                    terminal.println(yellow("Usage: /scheduler delete <task_id>"))
+                    return
+                }
+                try {
+                    val result = mcpManager.deleteScheduledTask(taskId)
+                    if (result.isSuccess) {
+                        terminal.println(red("🗑 Task deleted: $taskId"))
+                        terminal.println(result.getOrDefault(""))
+                    } else {
+                        terminal.println(red("Error: ${result.exceptionOrNull()?.message}"))
+                    }
+                } catch (e: Exception) {
+                    terminal.println(red("Error deleting task: ${e.message}"))
+                }
+            }
+            "pause" -> {
+                val taskId = parts.getOrNull(1)
+                if (taskId.isNullOrBlank()) {
+                    terminal.println(yellow("Usage: /scheduler pause <task_id>"))
+                    return
+                }
+                try {
+                    val result = mcpManager.pauseScheduledTask(taskId)
+                    if (result.isSuccess) {
+                        terminal.println(yellow("⏸ Task paused: $taskId"))
+                        terminal.println(result.getOrDefault(""))
+                    } else {
+                        terminal.println(red("Error: ${result.exceptionOrNull()?.message}"))
+                    }
+                } catch (e: Exception) {
+                    terminal.println(red("Error pausing task: ${e.message}"))
+                }
+            }
+            "resume" -> {
+                val taskId = parts.getOrNull(1)
+                if (taskId.isNullOrBlank()) {
+                    terminal.println(yellow("Usage: /scheduler resume <task_id>"))
+                    return
+                }
+                try {
+                    val result = mcpManager.resumeScheduledTask(taskId)
+                    if (result.isSuccess) {
+                        terminal.println(green("▶ Task resumed: $taskId"))
+                        terminal.println(result.getOrDefault(""))
+                    } else {
+                        terminal.println(red("Error: ${result.exceptionOrNull()?.message}"))
+                    }
+                } catch (e: Exception) {
+                    terminal.println(red("Error resuming task: ${e.message}"))
+                }
+            }
+            "get" -> {
+                val taskId = parts.getOrNull(1)
+                if (taskId.isNullOrBlank()) {
+                    terminal.println(yellow("Usage: /scheduler get <task_id>"))
+                    return
+                }
+                try {
+                    val result = mcpManager.getScheduledTask(taskId)
+                    if (result.isSuccess) {
+                        terminal.println(result.getOrDefault("Task not found"))
+                    } else {
+                        terminal.println(red("Error: ${result.exceptionOrNull()?.message}"))
+                    }
+                } catch (e: Exception) {
+                    terminal.println(red("Error getting task: ${e.message}"))
+                }
+            }
+            "history" -> {
+                val taskId = parts.getOrNull(1)
+                if (taskId.isNullOrBlank()) {
+                    terminal.println(yellow("Usage: /scheduler history <task_id>"))
+                    return
+                }
+                try {
+                    val result = mcpManager.getTaskHistory(taskId)
+                    if (result.isSuccess) {
+                        terminal.println(result.getOrDefault("No history found"))
+                    } else {
+                        terminal.println(red("Error: ${result.exceptionOrNull()?.message}"))
+                    }
+                } catch (e: Exception) {
+                    terminal.println(red("Error getting history: ${e.message}"))
+                }
+            }
+            "help" -> showSchedulerHelp()
+            else -> {
+                terminal.println(yellow("Unknown scheduler command. Available: list, cancel, delete, pause, resume, get, history"))
+                terminal.println(gray("Type '/scheduler help' for more details"))
+            }
+        }
+    }
+
+    private fun showSchedulerHelp() {
+        terminal.println()
+        terminal.println(bold("Scheduler Commands:"))
+        terminal.println()
+        terminal.println("  ${cyan("/scheduler list")}         List active scheduled tasks")
+        terminal.println("  ${cyan("/scheduler list -a")}       List all tasks (including completed)")
+        terminal.println("  ${cyan("/scheduler get <id>")}      Get task details")
+        terminal.println("  ${cyan("/scheduler cancel <id>")}   Cancel a scheduled task")
+        terminal.println("  ${cyan("/scheduler delete <id>")}   Delete a task permanently")
+        terminal.println("  ${cyan("/scheduler pause <id>")}    Pause a scheduled task")
+        terminal.println("  ${cyan("/scheduler resume <id>")}   Resume a paused task")
+        terminal.println("  ${cyan("/scheduler history <id>")}  Show task execution history")
+        terminal.println()
     }
 
     /**
@@ -879,6 +1078,7 @@ class ReplController {
         terminal.println("  ${cyan("/task pause")}      Pause current task")
         terminal.println("  ${cyan("/task resume")}     Resume paused task")
         terminal.println("  ${cyan("/memory show")}     Show memory context")
+        terminal.println("  ${cyan("/memory clear")}    Clear all memory and reset session")
         terminal.println("  ${cyan("/invariant list")}  Show project invariants")
         terminal.println("  ${cyan("/invariant add")}   Add new invariant")
         terminal.println("  ${cyan("/invariant toggle")} Enable/disable invariant")
@@ -898,7 +1098,30 @@ class ReplController {
         terminal.println("  ${cyan("/mcp write <p> <c>")}   Write file via filesystem MCP")
         terminal.println("  ${cyan("/mcp run <command>")}   Execute terminal command")
         terminal.println()
-        terminal.println(gray("  Built-in servers: filesystem, terminal"))
+        terminal.println(gray("  Built-in servers: filesystem, terminal, scheduler"))
+        terminal.println()
+        terminal.println(bold("Scheduler Commands (Task Scheduling):"))
+        terminal.println()
+        terminal.println("  ${cyan("/scheduler list")}              List all scheduled tasks")
+        terminal.println("  ${cyan("/scheduler list -a")}            List all tasks including completed")
+        terminal.println("  ${cyan("/scheduler get <id>")}           Get task details")
+        terminal.println("  ${cyan("/scheduler cancel <id>")}        Cancel a scheduled task")
+        terminal.println("  ${cyan("/scheduler delete <id>")}        Delete a task permanently")
+        terminal.println("  ${cyan("/scheduler pause <id>")}         Pause a scheduled task")
+        terminal.println("  ${cyan("/scheduler resume <id>")}        Resume a paused task")
+        terminal.println("  ${cyan("/scheduler history <id>")}       Show task execution history")
+        terminal.println()
+        terminal.println(green("  Natural language scheduling:"))
+        terminal.println(gray("  \"Создай напоминание Проверить почту каждый день в 9 утра\""))
+        terminal.println(gray("  \"Напомни мне через минуту сохранить файл\""))
+        terminal.println(gray("  \"Schedule a reminder every hour to drink water\""))
+        terminal.println()
+        terminal.println(yellow("  Cron expressions:"))
+        terminal.println(gray("  * * * * *     - every minute"))
+        terminal.println(gray("  */5 * * * *   - every 5 minutes"))
+        terminal.println(gray("  0 * * * *     - every hour"))
+        terminal.println(gray("  0 9 * * *     - every day at 9:00"))
+        terminal.println(gray("  0 9 * * 1     - every Monday at 9:00"))
         terminal.println()
         terminal.println(bold("Task Dialog Flow:"))
         terminal.println()

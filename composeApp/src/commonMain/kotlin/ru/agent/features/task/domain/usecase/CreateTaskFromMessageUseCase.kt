@@ -68,6 +68,11 @@ class CreateTaskFromMessageUseCase(
             return null
         }
 
+        // Skip scheduler/reminder requests - they should be handled by tools directly
+        if (isSchedulerRequest(trimmedMessage)) {
+            return null
+        }
+
         // Check if message contains task indicators
         if (isTaskRequest(trimmedMessage)) {
             // Extract task name from message (first sentence or up to 50 chars)
@@ -112,6 +117,15 @@ class CreateTaskFromMessageUseCase(
     private fun isTaskRequest(message: String): Boolean {
         val lowerMessage = message.lowercase()
         return TASK_INDICATORS.any { indicator -> lowerMessage.contains(indicator) }
+    }
+
+    /**
+     * Checks if the message is a scheduler/reminder request.
+     * These should be handled by tools directly, not as tasks.
+     */
+    private fun isSchedulerRequest(message: String): Boolean {
+        val lowerMessage = message.lowercase()
+        return SCHEDULER_INDICATORS.any { indicator -> lowerMessage.contains(indicator) }
     }
 
     /**
@@ -161,6 +175,28 @@ class CreateTaskFromMessageUseCase(
         // Patterns for thank you
         private val THANK_YOU_PATTERNS = listOf(
             Regex("^(спасибо|благодарю|thanks?|thank\\s*you)[!.\\s]*$", RegexOption.IGNORE_CASE)
+        )
+
+        // Indicators that the message should be handled by scheduler tools directly
+        // (not as a task that generates code)
+        private val SCHEDULER_INDICATORS = listOf(
+            // Russian - reminder/scheduler keywords
+            "напоминание", "напомни", "напомнить", "напоминай",
+            "планировщик", "запланируй", "запланировать", "запланированный",
+            "будильник", "таймер", "секундомер",
+            "уведомление", "уведоми", "оповещение", "оповести",
+            "каждую минуту", "каждый час", "каждый день", "каждую секунду",
+            "ежедневно", "ежечасно", "ежеминутно",
+            "по расписанию", "расписание",
+            "регулярно", "периодически", "повторяй",
+            "cron", "scheduler",
+            // English - reminder/scheduler keywords
+            "reminder", "remind me", "notify", "notification",
+            "schedule", "scheduled", "scheduling",
+            "alarm", "timer", "stopwatch",
+            "every minute", "every hour", "every day", "every second",
+            "daily", "hourly", "minutely",
+            "recurring", "periodic", "repeat"
         )
 
         // Indicators that the message is a task request

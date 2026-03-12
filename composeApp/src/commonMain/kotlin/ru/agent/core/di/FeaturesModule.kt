@@ -6,6 +6,7 @@ import ru.agent.features.invariant.di.featureInvariantModule
 import ru.agent.features.main.di.featureMainModule
 import ru.agent.features.memory.di.featureMemoryModule
 import ru.agent.features.profile.di.featureProfileModule
+import ru.agent.features.scheduler.di.featureSchedulerModule
 import ru.agent.features.task.di.featureTaskModule
 
 val featuresModule = module {
@@ -29,6 +30,9 @@ val featuresModule = module {
 
         // Invariant
         featureInvariantModule,
+
+        // Scheduler
+        featureSchedulerModule,
 
         // Note: mcpModule is defined in jvmMain and should be loaded separately for CLI applications
         // It's not included here because it depends on JVM-specific components

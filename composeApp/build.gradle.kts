@@ -117,6 +117,9 @@ kotlin {
             implementation(libs.mcp.sdk)
             implementation(libs.okio)
             implementation(libs.kotlinx.io.core)
+
+            // Scheduler - cron expression parser
+            implementation(libs.cron.utils)
         }
 
         iosMain.dependencies {

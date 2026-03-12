@@ -1,5 +1,7 @@
 package ru.agent.features.invariant.domain.model
 
+import ru.agent.core.util.TimeUtils
+
 /**
  * Инвариант - неизменяемое правило проекта.
  *
@@ -64,7 +66,7 @@ data class Invariant(
             priority: InvariantPriority,
             source: InvariantSource = InvariantSource.USER
         ): Invariant {
-            val now = System.currentTimeMillis()
+            val now = TimeUtils.currentTimeMillis()
             return Invariant(
                 id = id,
                 description = description,

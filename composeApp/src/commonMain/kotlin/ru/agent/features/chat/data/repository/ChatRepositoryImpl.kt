@@ -124,8 +124,20 @@ class ChatRepositoryImpl(
             }
         }
 
+        // Check if scheduler tools are available
+        val hasSchedulerTools = tools.any { it.function.name.startsWith("scheduler_") }
+
         return """
-            You are an AI assistant with access to tools for file operations and command execution.
+            You are an AI assistant in CLI (Command Line Interface) mode.
+
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║                         CLI ENVIRONMENT CONTEXT                              ║
+            ╠══════════════════════════════════════════════════════════════════════════════╣
+            ║ This is a COMMAND LINE application.                                          ║
+            ║ DO NOT generate Compose Desktop UI code, Swing, JavaFX, or any GUI code.     ║
+            ║ DO NOT generate @Composable functions or remember {} state blocks.           ║
+            ║ Only CLI commands, text output, and tool calls are appropriate.              ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
 
             WORKING DIRECTORY (FULL ABSOLUTE PATH): $workingDirectory
             Project name: $projectName
@@ -135,7 +147,8 @@ class ChatRepositoryImpl(
             ╠══════════════════════════════════════════════════════════════════════════════╣
             ║ DO NOT answer from memory or training data when user asks about files.       ║
             ║ DO NOT guess, estimate, or fabricate ANY file content.                       ║
-            ║ YOU MUST use tools to access real files on the filesystem.                   ║
+            ║ DO NOT generate code when you can use a TOOL instead.                        ║
+            ║ YOU MUST use tools to access real files and system features.                 ║
             ╚══════════════════════════════════════════════════════════════════════════════╝
 
             === MANDATORY TOOL USAGE - NO EXCEPTIONS ===
@@ -145,6 +158,8 @@ class ChatRepositoryImpl(
             - "list", "show files", "directory contents", "what files"
             - "write", "create", "modify", "edit" + file name
             - "search", "find", "look for" + file pattern
+            - "remind", "reminder", "schedule", "alarm", "notification", "notify"
+            - "cron", "periodic", "recurring task", "scheduled task"
 
             BEFORE responding with ANY file content:
             1. Call filesystem_read_file(path="FULL_ABSOLUTE_PATH")
@@ -153,6 +168,47 @@ class ChatRepositoryImpl(
 
             IF YOU RESPOND WITH FILE CONTENT WITHOUT CALLING THE TOOL FIRST, YOU ARE WRONG.
 
+            ${if (hasSchedulerTools) """
+            === SCHEDULER TOOLS ===
+            You have access to task scheduling tools. USE THEM instead of generating code!
+
+            For reminders/notifications: Use scheduler_schedule_reminder
+            - message: The reminder text to display
+            - cron: Cron expression (e.g., "* * * * *" = every minute, "0 9 * * *" = daily at 9:00)
+
+            For scheduled commands: Use scheduler_schedule_command
+            - command: Shell command to execute
+            - cron: Cron expression
+
+            Common cron patterns:
+            - "* * * * *" = every minute
+            - "*/5 * * * *" = every 5 minutes
+            - "0 * * * *" = every hour
+            - "0 9 * * *" = every day at 9:00
+            - "0 9 * * 1" = every Monday at 9:00
+
+            === SCHEDULER EXAMPLES ===
+
+            User: "Создай напоминание"
+            YOUR ACTION: Call scheduler_schedule_reminder with appropriate cron expression
+            THEN: Confirm the reminder was created with task details
+
+            User: "Напомни мне через минуту"
+            YOUR ACTION: Call scheduler_schedule_reminder(message="...", cron="* * * * *")
+
+            User: "Every day at 9am remind me to check emails"
+            YOUR ACTION: Call scheduler_schedule_reminder(message="Check emails", cron="0 9 * * *")
+
+            User: "Покажи список задач"
+            YOUR ACTION: Call scheduler_list_scheduled_tasks
+            THEN: Show the returned task list
+
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║  WRONG: Generating Compose Desktop code for reminders                        ║
+            ║  CORRECT: Using scheduler_schedule_reminder tool                             ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
+            """ else ""}
+
             === PATH REQUIREMENTS ===
             ALWAYS use FULL ABSOLUTE PATH starting with: $workingDirectory
             Example: $workingDirectory/README.md (NOT just "README.md" or "./README.md")
@@ -160,7 +216,7 @@ class ChatRepositoryImpl(
             === AVAILABLE TOOLS ===
             $toolsDescription
 
-            === EXAMPLE INTERACTIONS ===
+            === FILE EXAMPLE INTERACTIONS ===
 
             User: "Прочитай файл README.md"
             YOUR FIRST ACTION: Call filesystem_read_file(path="$workingDirectory/README.md")
@@ -182,11 +238,11 @@ class ChatRepositoryImpl(
     }
 
     /**
-     * Detect if user message requires file operations.
+     * Detect if user message requires tool operations (file or scheduler).
      * Used to determine if we should force tool usage.
      *
      * @param message User message to analyze
-     * @return true if message likely requires file tools
+     * @return true if message likely requires tools
      */
     private fun isFileOperationRequest(message: String): Boolean {
         val lowerMessage = message.lowercase()
@@ -214,7 +270,22 @@ class ChatRepositoryImpl(
                 lowerMessage.contains("build") ||
                 lowerMessage.contains("settings")
 
-        return hasReadIntent && hasFileReference
+        val isFileRequest = hasReadIntent && hasFileReference
+
+        // Check for scheduler/reminder operation intent
+        val schedulerKeywords = listOf(
+            "remind", "reminder", "напомни", "напоминание", "напомнить",
+            "schedule", "scheduled", "запланируй", "запланировать", "планировщик",
+            "alarm", "будильник", "таймер", "timer",
+            "notify", "notification", "уведомление", "уведоми",
+            "cron", "periodic", "периодический", "регулярный",
+            "every minute", "каждую минуту", "каждый день", "every day",
+            "at", "в", "repeat", "повторяй"
+        )
+
+        val isSchedulerRequest = schedulerKeywords.any { lowerMessage.contains(it) }
+
+        return isFileRequest || isSchedulerRequest
     }
 
     /**

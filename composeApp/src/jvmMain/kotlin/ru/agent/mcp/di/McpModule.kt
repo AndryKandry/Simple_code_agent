@@ -6,7 +6,14 @@ import org.koin.dsl.module
 import ru.agent.mcp.McpManager
 import ru.agent.mcp.client.McpClient
 import ru.agent.mcp.server.FilesystemMcpServer
+import ru.agent.mcp.server.SchedulerMcpServer
 import ru.agent.mcp.server.TerminalMcpServer
+import ru.agent.features.scheduler.domain.repository.ScheduledTaskRepository
+import ru.agent.features.scheduler.domain.repository.TaskExecutionRepository
+import ru.agent.scheduler.CronParser
+import ru.agent.scheduler.SchedulerEngine
+import ru.agent.scheduler.TaskExecutor
+import ru.agent.scheduler.createSchedulerEngine
 import java.io.File
 
 /**
@@ -68,6 +75,32 @@ val mcpModule = module {
         )
     }
 
+    // Scheduler MCP Server
+    single<SchedulerMcpServer> {
+        SchedulerMcpServer(
+            taskRepository = get(),
+            executionRepository = get()
+        )
+    }
+
+    // Scheduler Engine Components
+    single<CronParser> { CronParser() }
+
+    single<TaskExecutor> {
+        TaskExecutor(
+            executionRepository = get(),
+            mcpManager = null // Will be set later via setter if needed
+        )
+    }
+
+    single<SchedulerEngine> {
+        createSchedulerEngine(
+            taskRepository = get(),
+            executionRepository = get(),
+            mcpManager = get()
+        )
+    }
+
     // MCP Client for external servers
     single<McpClient> {
         McpClient(httpClient = get())
@@ -78,6 +111,7 @@ val mcpModule = module {
         McpManager(
             filesystemServer = get(),
             terminalServer = get(),
+            schedulerServer = get(),
             mcpClient = get()
         )
     }

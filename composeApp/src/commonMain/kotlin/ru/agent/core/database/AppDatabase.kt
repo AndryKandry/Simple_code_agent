@@ -20,6 +20,10 @@ import ru.agent.features.memory.data.local.entity.UserProfileEntity
 import ru.agent.features.memory.data.local.entity.WorkingMemoryEntity
 import ru.agent.features.task.data.local.dao.TaskStateDao
 import ru.agent.features.task.data.local.entity.TaskStateEntity
+import ru.agent.features.scheduler.data.local.dao.ScheduledTaskDao
+import ru.agent.features.scheduler.data.local.dao.TaskExecutionDao
+import ru.agent.features.scheduler.data.local.entity.ScheduledTaskEntity
+import ru.agent.features.scheduler.data.local.entity.TaskExecutionEntity
 
 @Database(
     entities = [
@@ -31,9 +35,11 @@ import ru.agent.features.task.data.local.entity.TaskStateEntity
         UserProfileEntity::class,
         ContextAnchorEntity::class,
         TaskStateEntity::class,
-        InvariantEntity::class
+        InvariantEntity::class,
+        ScheduledTaskEntity::class,
+        TaskExecutionEntity::class
     ],
-    version = 8
+    version = 9
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -46,6 +52,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun getContextAnchorDao(): ContextAnchorDao
     abstract fun getTaskStateDao(): TaskStateDao
     abstract fun getInvariantDao(): InvariantDao
+    abstract fun getScheduledTaskDao(): ScheduledTaskDao
+    abstract fun getTaskExecutionDao(): TaskExecutionDao
 }
 
 // The Room compiler generates the `actual` implementations.

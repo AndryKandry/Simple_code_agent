@@ -212,7 +212,15 @@ class CliChatController(
                         emptyList()
                     }
 
-                    output(response)
+                    // Output response with timestamp as a single block
+                    // Clear any prompt line first
+                    val timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                    val formattedResponse = buildString {
+                        append("\u001B[2K\r")  // Clear current line (removes prompt)
+                        append("\u001B[90m${timestamp}\u001B[0m \u001B[1;32mAgent:\u001B[0m\n")
+                        append(response)
+                    }
+                    output(formattedResponse)
 
                     // Add assistant response to STM
                     result.value.let { assistantMessage ->

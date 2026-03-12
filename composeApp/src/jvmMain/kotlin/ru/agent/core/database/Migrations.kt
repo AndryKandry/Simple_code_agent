@@ -65,9 +65,81 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
 }
 
 /**
+ * Миграция с версии 8 на версию 9.
+ *
+ * Создает таблицы для планировщика задач (scheduler).
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(connection: SQLiteConnection) {
+        // Создаем таблицу scheduled_tasks
+        connection.prepare(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id TEXT NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                cronExpression TEXT NOT NULL,
+                taskType TEXT NOT NULL,
+                taskDataJson TEXT NOT NULL,
+                status TEXT NOT NULL,
+                nextRunAt INTEGER,
+                lastRunAt INTEGER,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                tagsJson TEXT NOT NULL
+            )
+            """.trimIndent()
+        ).use { statement ->
+            statement.step()
+        }
+
+        // Создаем индексы для scheduled_tasks
+        listOf(
+            "CREATE INDEX IF NOT EXISTS index_scheduled_tasks_status ON scheduled_tasks(status)",
+            "CREATE INDEX IF NOT EXISTS index_scheduled_tasks_taskType ON scheduled_tasks(taskType)",
+            "CREATE INDEX IF NOT EXISTS index_scheduled_tasks_nextRunAt ON scheduled_tasks(nextRunAt)"
+        ).forEach { sql ->
+            connection.prepare(sql).use { statement ->
+                statement.step()
+            }
+        }
+
+        // Создаем таблицу task_executions
+        connection.prepare(
+            """
+            CREATE TABLE IF NOT EXISTS task_executions (
+                id TEXT NOT NULL PRIMARY KEY,
+                taskId TEXT NOT NULL,
+                startedAt INTEGER NOT NULL,
+                completedAt INTEGER,
+                status TEXT NOT NULL,
+                result TEXT,
+                error TEXT,
+                FOREIGN KEY (taskId) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        ).use { statement ->
+            statement.step()
+        }
+
+        // Создаем индексы для task_executions
+        listOf(
+            "CREATE INDEX IF NOT EXISTS index_task_executions_taskId ON task_executions(taskId)",
+            "CREATE INDEX IF NOT EXISTS index_task_executions_status ON task_executions(status)",
+            "CREATE INDEX IF NOT EXISTS index_task_executions_startedAt ON task_executions(startedAt)"
+        ).forEach { sql ->
+            connection.prepare(sql).use { statement ->
+                statement.step()
+            }
+        }
+    }
+}
+
+/**
  * Список всех миграций для добавления в Room database builder.
  */
 val ALL_MIGRATIONS = listOf(
     MIGRATION_6_7,
-    MIGRATION_7_8
+    MIGRATION_7_8,
+    MIGRATION_8_9
 )
