@@ -9,12 +9,9 @@ import ru.agent.core.database.AppDatabase
 import ru.agent.features.chat.data.local.dao.ChatSessionDao
 import ru.agent.features.chat.data.local.dao.MessageDao
 import ru.agent.features.chat.data.remote.DeepSeekApiClient
-import ru.agent.features.chat.data.repository.ChatRepositoryImpl
 import ru.agent.features.chat.data.repository.ChatSessionRepositoryImpl
 import ru.agent.features.chat.domain.optimization.ContextOptimizer
-import ru.agent.features.chat.domain.repository.ChatRepository
 import ru.agent.features.chat.domain.repository.ChatSessionRepository
-import ru.agent.features.chat.domain.tools.ToolExecutor
 import ru.agent.features.chat.domain.usecase.ClearChatHistoryUseCase
 import ru.agent.features.chat.domain.usecase.CreateChatSessionUseCase
 import ru.agent.features.chat.domain.usecase.DeleteChatSessionUseCase
@@ -25,10 +22,13 @@ import ru.agent.features.chat.domain.usecase.SaveMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendSilentMessageUseCase
 import ru.agent.features.chat.presentation.ChatViewModel
-import ru.agent.features.invariant.domain.service.ValidationService
-import ru.agent.features.invariant.domain.usecase.ValidateInvariantViolationUseCase
-import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 
+/**
+ * Koin DI module for Chat feature (common code).
+ *
+ * Note: ChatRepository registration is in FeatureChatJvmModule because
+ * ChatRepositoryImpl depends on JVM-specific McpOrchestrator.
+ */
 val featureChatModule = module {
     // DAOs
     single<ChatSessionDao> { get<AppDatabase>().getChatSessionDao() }
@@ -45,21 +45,7 @@ val featureChatModule = module {
     // Token Optimization
     single { ContextOptimizer(maxTokens = 4000, keepRecentMessages = 4) }
 
-    // Repositories
-    // FIX: ChatRepositoryImpl now uses constructor injection for all dependencies
-    single<ChatRepository> {
-        ChatRepositoryImpl(
-            deepSeekApiClient = get(),
-            networkErrorHandling = get(),
-            messageDao = get(),
-            chatSessionDao = get(),
-            contextOptimizer = get(),
-            validateInvariantViolationUseCase = get(),
-            getMemoryContextUseCase = get(),
-            validationService = get(),
-            toolExecutor = get()  // ToolExecutor for function calling
-        )
-    }
+    // Repositories (ChatRepositoryImpl is registered in FeatureChatJvmModule)
     singleOf(::ChatSessionRepositoryImpl) bind ChatSessionRepository::class
 
     // Use Cases

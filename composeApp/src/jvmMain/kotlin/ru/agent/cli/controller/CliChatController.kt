@@ -538,9 +538,9 @@ class CliChatController(
                 message = "Processing"
             )
 
-            // Send the execution request to LLM (without saving to chat history)
+            // Send the execution request to LLM with MCP tools enabled
             val result = try {
-                sendSilentMessageUseCase(sessionId, executionPrompt)
+                sendMessageUseCase(sessionId, executionPrompt)
             } catch (e: Exception) {
                 if (isInterrupted) {
                     spinnerJob.cancel()
@@ -557,7 +557,10 @@ class CliChatController(
 
             return when (result) {
                 is ResultWrapper.Success -> {
-                    val executionResult = result.value
+                    val executionResult = result.value.content
+
+                    // Add response to STM
+                    addMessageToMemoryUseCase(sessionId, result.value)
 
                     // Complete progress
                     progressTracker.complete("Execution completed")

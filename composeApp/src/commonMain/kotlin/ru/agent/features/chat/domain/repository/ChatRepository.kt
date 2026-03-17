@@ -13,10 +13,19 @@ interface ChatRepository {
     suspend fun sendMessage(sessionId: String, message: String): ResultWrapper<Message>
 
     /**
-     * Send a message to LLM without saving to chat history.
-     * Used for internal operations like planning and validation.
+     * Send a message to LLM with optional tool support.
+     * Used for task execution that requires MCP tools.
+     *
+     * @param sessionId Session ID for context
+     * @param message Message to send
+     * @param includeTools Whether to enable MCP tool execution (default: false)
+     * @return Result containing the AI response
      */
-    suspend fun sendSilentMessage(sessionId: String, message: String): ResultWrapper<String>
+    suspend fun sendSilentMessage(
+        sessionId: String,
+        message: String,
+        includeTools: Boolean = false
+    ): ResultWrapper<String>
 
     /**
      * Save a message directly to chat history without sending to LLM.

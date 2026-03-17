@@ -21,6 +21,7 @@ import ru.agent.features.task.domain.usecase.TransitionTaskStageUseCase
 import ru.agent.features.task.domain.usecase.UpdateTaskStateUseCase
 import ru.agent.features.task.domain.usecase.ValidateTaskResultUseCase
 import ru.agent.mcp.di.mcpModule
+import ru.agent.mcp.orchestration.di.orchestrationModule
 
 /**
  * Koin module for CLI components.
@@ -35,8 +36,8 @@ import ru.agent.mcp.di.mcpModule
  * - Tool executor for function calling
  */
 val cliModule = module {
-    // Include MCP module and Chat JVM module (for ToolExecutor)
-    includes(mcpModule, featureChatJvmModule)
+    // Include MCP module, Chat JVM module (for ToolExecutor), and Orchestration module
+    includes(mcpModule, featureChatJvmModule, orchestrationModule)
 
     // Progress Tracker - singleton for tracking progress across operations
     single<ProgressTracker> { ProgressTracker() }
