@@ -24,6 +24,12 @@ import ru.agent.features.scheduler.data.local.dao.ScheduledTaskDao
 import ru.agent.features.scheduler.data.local.dao.TaskExecutionDao
 import ru.agent.features.scheduler.data.local.entity.ScheduledTaskEntity
 import ru.agent.features.scheduler.data.local.entity.TaskExecutionEntity
+import ru.agent.features.rag.data.local.dao.DocumentChunkDao
+import ru.agent.features.rag.data.local.dao.EmbeddingDao
+import ru.agent.features.rag.data.local.dao.IndexMetadataDao
+import ru.agent.features.rag.data.local.entity.DocumentChunkEntity
+import ru.agent.features.rag.data.local.entity.EmbeddingEntity
+import ru.agent.features.rag.data.local.entity.IndexMetadataEntity
 
 @Database(
     entities = [
@@ -37,9 +43,12 @@ import ru.agent.features.scheduler.data.local.entity.TaskExecutionEntity
         TaskStateEntity::class,
         InvariantEntity::class,
         ScheduledTaskEntity::class,
-        TaskExecutionEntity::class
+        TaskExecutionEntity::class,
+        DocumentChunkEntity::class,
+        EmbeddingEntity::class,
+        IndexMetadataEntity::class
     ],
-    version = 9
+    version = 10
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -54,6 +63,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun getInvariantDao(): InvariantDao
     abstract fun getScheduledTaskDao(): ScheduledTaskDao
     abstract fun getTaskExecutionDao(): TaskExecutionDao
+    abstract fun getDocumentChunkDao(): DocumentChunkDao
+    abstract fun getEmbeddingDao(): EmbeddingDao
+    abstract fun getIndexMetadataDao(): IndexMetadataDao
 }
 
 // The Room compiler generates the `actual` implementations.

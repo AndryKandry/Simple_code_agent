@@ -11,6 +11,7 @@ import ru.agent.features.chat.domain.usecase.SendMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendSilentMessageUseCase
 import ru.agent.features.memory.domain.usecase.AddMessageToMemoryUseCase
 import ru.agent.features.memory.domain.usecase.UpdateWorkingMemoryUseCase
+import ru.agent.features.rag.di.featureRagJvmModule
 import ru.agent.features.task.domain.usecase.CancelTaskUseCase
 import ru.agent.features.task.domain.usecase.CreateTaskFromMessageUseCase
 import ru.agent.features.task.domain.usecase.GenerateTaskPlanUseCase
@@ -34,10 +35,11 @@ import ru.agent.mcp.orchestration.di.orchestrationModule
  * - CLI animator for spinners and animations
  * - MCP infrastructure (Filesystem, Terminal, Client)
  * - Tool executor for function calling
+ * - RAG JVM-specific components (Ollama, Chunkers, IndexingPipeline)
  */
 val cliModule = module {
-    // Include MCP module, Chat JVM module (for ToolExecutor), and Orchestration module
-    includes(mcpModule, featureChatJvmModule, orchestrationModule)
+    // Include MCP module, Chat JVM module (for ToolExecutor), Orchestration module, and RAG JVM module
+    includes(mcpModule, featureChatJvmModule, orchestrationModule, featureRagJvmModule)
 
     // Progress Tracker - singleton for tracking progress across operations
     single<ProgressTracker> { ProgressTracker() }
