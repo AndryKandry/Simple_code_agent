@@ -4,6 +4,9 @@ import co.touchlab.kermit.Logger
 import com.github.ajalt.mordant.rendering.TextColors.gray
 import com.github.ajalt.mordant.rendering.TextColors.green
 import com.github.ajalt.mordant.rendering.TextColors.yellow
+import com.github.ajalt.mordant.rendering.TextColors.cyan
+import com.github.ajalt.mordant.rendering.TextColors.magenta
+import com.github.ajalt.mordant.rendering.TextColors.red
 import com.github.ajalt.mordant.rendering.TextStyles.bold
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -27,7 +30,9 @@ import ru.agent.features.invariant.domain.service.ValidationWarning
 import ru.agent.features.memory.domain.model.ExecutionState
 import ru.agent.features.memory.domain.model.TaskType
 import ru.agent.features.memory.domain.usecase.AddMessageToMemoryUseCase
+import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 import ru.agent.features.memory.domain.usecase.UpdateWorkingMemoryUseCase
+import ru.agent.features.rag.domain.service.RagSearchService
 import ru.agent.features.task.domain.model.TaskStage
 import ru.agent.features.task.domain.model.TaskState
 import ru.agent.features.task.domain.usecase.CancelTaskUseCase
@@ -55,6 +60,7 @@ import kotlin.uuid.Uuid
  * - Validation warnings display
  * - Progress tracking and visualization
  * - Interrupt handling (Ctrl+C)
+ * - RAG (Retrieval-Augmented Generation) support with compare mode
  */
 class CliChatController(
     private val sendMessageUseCase: SendMessageUseCase,
@@ -74,7 +80,9 @@ class CliChatController(
     private val updateWorkingMemoryUseCase: UpdateWorkingMemoryUseCase,
     private val validationService: ru.agent.features.invariant.domain.service.ValidationService,
     private val progressTracker: ProgressTracker,
-    private val cliAnimator: CliAnimator
+    private val cliAnimator: CliAnimator,
+    private val getMemoryContextUseCase: GetMemoryContextUseCase,
+    private val ragSearchService: RagSearchService
 ) {
     private val logger = Logger.withTag("CliChatController")
 
@@ -109,12 +117,16 @@ class CliChatController(
      *
      * @param message The user's message
      * @param output Callback for outputting messages to terminal
+     * @param ragEnabled Enable RAG (Retrieval-Augmented Generation) for context enrichment (default: true)
+     * @param compareMode Compare RAG vs non-RAG responses side by side (default: false)
      * @return CliChatResult indicating what happened
      */
     @OptIn(ExperimentalUuidApi::class)
     suspend fun processMessage(
         message: String,
-        output: (String) -> Unit
+        output: (String) -> Unit,
+        ragEnabled: Boolean = true,
+        compareMode: Boolean = false
     ): CliChatResult {
         if (message.isBlank()) {
             return CliChatResult.Empty
@@ -143,6 +155,11 @@ class CliChatController(
             // Add user message to STM
             addMessageToMemoryUseCase(sessionId, optimisticMessage)
 
+            // Handle compare mode separately
+            if (compareMode) {
+                return handleCompareMode(message, output)
+            }
+
             // Try to create a task from the message
             val createdTask = try {
                 createTaskFromMessageUseCase(sessionId, message)?.also { task ->
@@ -155,10 +172,10 @@ class CliChatController(
 
             // If task was created, start the dialog-based flow
             return if (createdTask != null) {
-                handleTaskCreationDialogFlow(createdTask, message, output)
+                handleTaskCreationDialogFlow(createdTask, message, output, ragEnabled)
             } else {
                 // No task created - send message directly (simple chat)
-                handleSimpleChat(message, output)
+                handleSimpleChat(message, output, ragEnabled)
             }
         } finally {
             isProcessing = false
@@ -166,11 +183,168 @@ class CliChatController(
     }
 
     /**
+     * Handle compare mode - execute query with and without RAG.
+     * Tools are DISABLED for both requests to ensure clean comparison of RAG effect only.
+     * Uses separate sessions to avoid chat history interference.
+     */
+    @OptIn(ExperimentalUuidApi::class)
+    private suspend fun handleCompareMode(
+        message: String,
+        output: (String) -> Unit
+    ): CliChatResult {
+        output(cyan("=== Compare Mode: RAG vs Non-RAG (Tools Disabled) ==="))
+        output(cyan("Query: ${message.take(100)}${if (message.length > 100) "..." else ""}"))
+        output(gray("Note: MCP tools are disabled for clean RAG comparison"))
+        output("")
+
+        // RAG metrics - local variables
+        var chunksFound = 0
+        var averageSimilarity = 0.0
+        var topChunkFile: String? = null
+        var topChunkSimilarity: Double? = null
+
+        // Collect RAG context information
+        try {
+            val memoryContext = getMemoryContextUseCase(
+                sessionId = sessionId,
+                searchQuery = message,
+                ragEnabled = true
+            )
+
+            val chunks = memoryContext.relevantChunks
+            chunksFound = chunks.size
+
+            if (chunks.isNotEmpty()) {
+                averageSimilarity = chunks.map { it.similarity.toDouble() }.average()
+                topChunkFile = chunks.first().fileName
+                topChunkSimilarity = chunks.first().similarity.toDouble()
+
+                output(gray("RAG found $chunksFound relevant code chunks"))
+                output(gray("Top result: $topChunkFile (similarity: ${"%.2f".format(topChunkSimilarity)})"))
+                output("")
+            } else {
+                output(yellow("RAG found no relevant code chunks"))
+                output("")
+            }
+        } catch (e: Exception) {
+            logger.e(throwable = e) { "Failed to get RAG context" }
+            output(yellow("RAG search failed: ${e.message}"))
+            output("")
+        }
+
+        // Use separate sessions for each request to avoid history interference
+        val sessionWithoutRag = "cli-compare-without-rag-${Uuid.random()}"
+        val sessionWithRag = "cli-compare-with-rag-${Uuid.random()}"
+
+        // 1. Execute WITHOUT RAG (and without tools)
+        output(magenta(bold("=== Response WITHOUT RAG ===")))
+        val startTimeWithoutRag = System.currentTimeMillis()
+
+        val resultWithoutRag = sendMessageUseCase(
+            sessionId = sessionWithoutRag,
+            message = message,
+            ragEnabled = false,
+            searchQuery = message,
+            includeTools = false
+        )
+
+        val durationWithoutRag = System.currentTimeMillis() - startTimeWithoutRag
+
+        val responseWithoutRag = when (resultWithoutRag) {
+            is ResultWrapper.Success -> {
+                val response = resultWithoutRag.value.content
+                output(response)
+                output("")
+                output(gray("Duration: ${durationWithoutRag}ms"))
+                output("")
+                response
+            }
+            is ResultWrapper.Error -> {
+                val errorMsg = resultWithoutRag.message ?: "Unknown error"
+                output(red("Error: $errorMsg"))
+                output("")
+                errorMsg
+            }
+        }
+
+        output("")
+
+        // 2. Execute WITH RAG (but without tools)
+        output(green(bold("=== Response WITH RAG ===")))
+        val startTimeWithRag = System.currentTimeMillis()
+
+        val resultWithRag = sendMessageUseCase(
+            sessionId = sessionWithRag,
+            message = message,
+            ragEnabled = true,
+            searchQuery = message,
+            includeTools = false
+        )
+
+        val durationWithRag = System.currentTimeMillis() - startTimeWithRag
+
+        // Build RAG metrics
+        val ragMetrics = CliChatResult.RagMetrics(
+            chunksFound = chunksFound,
+            averageSimilarity = averageSimilarity,
+            topChunkFile = topChunkFile,
+            topChunkSimilarity = topChunkSimilarity,
+            durationMs = durationWithRag
+        )
+
+        val responseWithRag = when (resultWithRag) {
+            is ResultWrapper.Success -> {
+                val response = resultWithRag.value.content
+                output(response)
+                output("")
+                output(gray("Duration: ${durationWithRag}ms"))
+                if (chunksFound > 0) {
+                    val similarityStr = "%.2f".format(averageSimilarity)
+                    output(gray("RAG chunks used: $chunksFound (avg similarity: $similarityStr)"))
+
+                    // Show sources from message
+                    val sources = resultWithRag.value.sources
+                    if (!sources.isNullOrEmpty()) {
+                        output("")
+                        output(formatRagSources(sources))
+                    }
+                }
+                output("")
+                response
+            }
+            is ResultWrapper.Error -> {
+                val errorMsg = resultWithRag.message ?: "Unknown error"
+                output(red("Error: $errorMsg"))
+                output("")
+                errorMsg
+            }
+        }
+
+        // 3. Summary
+        output(cyan(bold("=== Comparison Summary ===")))
+        output(gray("─".repeat(50)))
+        output(bold("Without RAG: ") + "${durationWithoutRag}ms")
+        output(bold("With RAG:    ") + "${durationWithRag}ms (+${durationWithRag - durationWithoutRag}ms)")
+        if (chunksFound > 0) {
+            output(bold("RAG context: ") + "$chunksFound chunks, avg similarity " + "%.2f".format(averageSimilarity))
+        }
+        output(gray("─".repeat(50)))
+
+        return CliChatResult.CompareResult(
+            responseWithoutRag = responseWithoutRag,
+            responseWithRag = responseWithRag,
+            ragMetrics = ragMetrics,
+            warnings = emptyList()
+        )
+    }
+
+    /**
      * Handle simple chat (non-task message).
      */
     private suspend fun handleSimpleChat(
         message: String,
-        output: (String) -> Unit
+        output: (String) -> Unit,
+        ragEnabled: Boolean = true
     ): CliChatResult {
         // Collect validation warnings for user request
         val requestWarnings = try {
@@ -190,7 +364,7 @@ class CliChatController(
             emptyList()
         }
 
-        return when (val result = sendMessageUseCase(sessionId, message)) {
+        return when (val result = sendMessageUseCase(sessionId, message, ragEnabled)) {
             is ResultWrapper.Success -> {
                 val response = result.value.content
 
@@ -219,6 +393,13 @@ class CliChatController(
                         append("\u001B[2K\r")  // Clear current line (removes prompt)
                         append("\u001B[90m${timestamp}\u001B[0m \u001B[1;32mAgent:\u001B[0m\n")
                         append(response)
+
+                        // Add RAG sources if available
+                        val sources = result.value.sources
+                        if (!sources.isNullOrEmpty()) {
+                            append("\n\n")
+                            append(formatRagSources(sources))
+                        }
                     }
                     output(formattedResponse)
 
@@ -260,7 +441,8 @@ class CliChatController(
     private suspend fun handleTaskCreationDialogFlow(
         task: TaskState,
         originalMessage: String,
-        output: (String) -> Unit
+        output: (String) -> Unit,
+        ragEnabled: Boolean = true
     ): CliChatResult {
         // === VALIDATION: Validate user request ===
         try {
@@ -469,10 +651,10 @@ class CliChatController(
             }
 
             return if (createdTask != null) {
-                handleTaskCreationDialogFlow(createdTask, message, output)
+                handleTaskCreationDialogFlow(createdTask, message, output, ragEnabled = true)
             } else {
                 // No task created - send as simple chat
-                handleSimpleChat(message, output)
+                handleSimpleChat(message, output, ragEnabled = true)
             }
         } finally {
             isProcessing = false
@@ -540,7 +722,7 @@ class CliChatController(
 
             // Send the execution request to LLM with MCP tools enabled
             val result = try {
-                sendMessageUseCase(sessionId, executionPrompt)
+                sendMessageUseCase(sessionId, executionPrompt, ragEnabled = true)
             } catch (e: Exception) {
                 if (isInterrupted) {
                     spinnerJob.cancel()
@@ -979,7 +1161,7 @@ class CliChatController(
                 """.trimIndent()
 
                 // Re-send execution request
-                return when (val result = sendMessageUseCase(sessionId, retryPrompt)) {
+                return when (val result = sendMessageUseCase(sessionId, retryPrompt, ragEnabled = true)) {
                     is ResultWrapper.Success -> {
                         val executionResult = result.value.content
 
@@ -1380,6 +1562,48 @@ class CliChatController(
         output("")
         output(gray("─".repeat(40)))
         output("")
+    }
+
+    /**
+     * Format RAG sources for CLI display.
+     * Shows a nice box with source files and their relevance scores.
+     */
+    private fun formatRagSources(sources: List<ru.agent.features.rag.domain.model.ChunkScore>): String {
+        return buildString {
+            append(cyan(bold("📚 Sources (RAG):")))
+            append("\n")
+            append(gray("─".repeat(40)))
+            append("\n")
+
+            sources.forEachIndexed { index, chunk ->
+                val scoreColor = when {
+                    chunk.similarity >= 0.8f -> green
+                    chunk.similarity >= 0.6f -> yellow
+                    else -> gray
+                }
+
+                append(scoreColor("  ${index + 1}. "))
+                append(bold(chunk.fileName))
+
+                if (chunk.startLine > 0) {
+                    append(gray(":${chunk.startLine}"))
+                    if (chunk.endLine > chunk.startLine) {
+                        append(gray("-${chunk.endLine}"))
+                    }
+                }
+
+                append(" ")
+                append(scoreColor("(%.0f%%)".format(chunk.similarity * 100)))
+                append("\n")
+
+                // Show section if available
+                chunk.section?.let { section ->
+                    append(gray("     └─ $section\n"))
+                }
+            }
+
+            append(gray("─".repeat(40)))
+        }
     }
 
     companion object {

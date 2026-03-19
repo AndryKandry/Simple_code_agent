@@ -72,4 +72,25 @@ sealed class CliChatResult {
         val baseResult: CliChatResult,
         val warnings: List<ValidationWarning>
     ) : CliChatResult()
+
+    /**
+     * Compare mode result - shows both RAG and non-RAG responses.
+     */
+    data class CompareResult(
+        val responseWithoutRag: String,
+        val responseWithRag: String,
+        val ragMetrics: RagMetrics?,
+        val warnings: List<ValidationWarning> = emptyList()
+    ) : CliChatResult()
+
+    /**
+     * RAG comparison metrics.
+     */
+    data class RagMetrics(
+        val chunksFound: Int,
+        val averageSimilarity: Double,
+        val topChunkFile: String?,
+        val topChunkSimilarity: Double?,
+        val durationMs: Long
+    )
 }

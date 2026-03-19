@@ -2,6 +2,7 @@ package ru.agent.features.memory.domain.model
 
 import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.invariant.domain.model.Invariant
+import ru.agent.features.rag.domain.model.ChunkScore
 
 /**
  * Memory Context - агрегированный контекст памяти.
@@ -15,6 +16,7 @@ import ru.agent.features.invariant.domain.model.Invariant
  * @property relevantKnowledge Релевантные записи из базы знаний
  * @property activeAnchors Активные контекстные якоря
  * @property activeInvariants Активные инварианты проекта
+ * @property relevantChunks Релевантные чанки из RAG индекса
  */
 data class MemoryContext(
     val shortTermMemory: ShortTermMemory = ShortTermMemory(),
@@ -22,7 +24,8 @@ data class MemoryContext(
     val userProfile: UserProfile? = null,
     val relevantKnowledge: List<KnowledgeEntry> = emptyList(),
     val activeAnchors: List<ContextAnchor> = emptyList(),
-    val activeInvariants: List<Invariant> = emptyList()
+    val activeInvariants: List<Invariant> = emptyList(),
+    val relevantChunks: List<ChunkScore> = emptyList()
 ) {
 
     /**
@@ -34,7 +37,8 @@ data class MemoryContext(
                 userProfile == null &&
                 relevantKnowledge.isEmpty() &&
                 activeAnchors.isEmpty() &&
-                activeInvariants.isEmpty()
+                activeInvariants.isEmpty() &&
+                relevantChunks.isEmpty()
     }
 
     /**
@@ -51,6 +55,11 @@ data class MemoryContext(
         // Контекстные якоря
         if (activeAnchors.isNotEmpty()) {
             parts.add(buildAnchorsSection())
+        }
+
+        // RAG контекст (code snippets from indexed files)
+        if (relevantChunks.isNotEmpty()) {
+            parts.add(buildRagSection())
         }
 
         // База знаний
@@ -201,6 +210,37 @@ data class MemoryContext(
             |3. If a requested change violates a MEDIUM priority rule, INFORM the user but proceed if they confirm.
             |4. ALWAYS explain which invariant is being violated and why it matters.
         """.trimMargin()
+    }
+
+    private fun buildRagSection(): String {
+        val header = "--- RELEVANT CODE CONTEXT (RAG) ---\nFound ${relevantChunks.size} relevant code sections:\n"
+
+        val chunksInfo = relevantChunks.mapIndexed { index, chunk ->
+            val rank = index + 1
+            val locationInfo = if (chunk.startLine > 0 && chunk.endLine > 0) {
+                "Lines: ${chunk.startLine}-${chunk.endLine}"
+            } else {
+                ""
+            }
+
+            buildString {
+                appendLine("[$rank] File: ${chunk.fileName} (similarity: ${"%.2f".format(chunk.similarity)})")
+                if (locationInfo.isNotEmpty()) {
+                    appendLine(locationInfo)
+                }
+                appendLine("```")
+                appendLine(chunk.content)
+                append("```")
+            }
+        }
+
+        val footer = "--- END RAG CONTEXT ---"
+
+        return buildString {
+            appendLine(header)
+            appendLine(chunksInfo.joinToString("\n"))
+            append(footer)
+        }
     }
 }
 

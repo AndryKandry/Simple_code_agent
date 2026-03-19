@@ -1,0 +1,220 @@
+# Test Questions for RAG Evaluation
+# These questions are used to test the RAG functionality of the CLI Agent.
+# Each question includes expected facts that should be present in a good RAG response.
+#
+# Usage:
+#   ./gradlew run --args="chat \"<question>\" --rag"
+#   ./gradlew run --args="chat \"<question>\" --compare"
+#
+# rag_expected levels:
+#   - high: RAG should provide significant improvement (code-specific questions)
+#   - medium: RAG should help with some details
+#   - low: General knowledge question, RAG may not help much
+
+questions:
+  # === Architecture Questions ===
+
+  - id: q1
+    question: "Какая архитектура у этого проекта?"
+    expected_facts:
+      - "Kotlin Multiplatform"
+      - "Koin DI"
+      - "DeepSeek API"
+      - "Room database"
+      - "Clean Architecture"
+    rag_expected: high
+    category: architecture
+
+  - id: q2
+    question: "Как работает система памяти в этом проекте?"
+    expected_facts:
+      - "STM"  # Short-term Memory
+      - "WM"   # Working Memory
+      - "LTM"  # Long-term Memory
+      - "MemoryContext"
+      - "GetMemoryContextUseCase"
+      - "ShortTermMemoryRepository"
+    rag_expected: high
+    category: memory
+
+  - id: q3
+    question: "Объясни pipeline индексации документов"
+    expected_facts:
+      - "IndexingPipeline"
+      - "GitFilesCollector"
+      - "TextChunker"
+      - "OllamaEmbeddingClient"
+      - "DocumentIndexRepository"
+      - "EmbeddingRepository"
+    rag_expected: high
+    category: rag
+
+  # === Technical Details ===
+
+  - id: q4
+    question: "Что такое cosine similarity и как она вычисляется?"
+    expected_facts:
+      - "EmbeddingVector"
+      - "dot product"
+      - "normalization"
+      - "-1 to 1"
+      - "cosineSimilarity"
+    rag_expected: medium
+    category: rag
+
+  - id: q5
+    question: "Какие MCP инструменты доступны?"
+    expected_facts:
+      - "filesystem"
+      - "terminal"
+      - "scheduler"
+      - "McpOrchestrator"
+    rag_expected: medium
+    category: mcp
+
+  - id: q6
+    question: "Объясни State Machine для задач"
+    expected_facts:
+      - "PLANNING"
+      - "EXECUTION"
+      - "VALIDATION"
+      - "DONE"
+      - "TaskStage"
+      - "transitionTaskStageUseCase"
+    rag_expected: high
+    category: tasks
+
+  # === Configuration Questions ===
+
+  - id: q7
+    question: "Какая модель embeddings используется по умолчанию?"
+    expected_facts:
+      - "bge-m3"
+      - "Ollama"
+      - "1024"
+      - "OllamaEmbeddingClient"
+    rag_expected: low
+    category: rag
+
+  - id: q8
+    question: "Как работают инварианты в chat flow?"
+    expected_facts:
+      - "ValidationService"
+      - "CRITICAL"
+      - "WARN"
+      - "block"
+      - "CheckType"
+      - "USER_REQUEST"
+      - "AI_RESPONSE"
+    rag_expected: medium
+    category: invariants
+
+  # === Chunking Strategies ===
+
+  - id: q9
+    question: "Какие стратегии чанкинга доступны?"
+    expected_facts:
+      - "FIXED_SIZE"
+      - "STRUCTURE_BASED"
+      - "IndexingStrategy"
+      - "FixedSizeChunker"
+      - "StructureBasedChunker"
+    rag_expected: high
+    category: rag
+
+  # === Prompt Engineering ===
+
+  - id: q10
+    question: "Где формируется system prompt для LLM?"
+    expected_facts:
+      - "MemoryContext.toSystemPrompt()"
+      - "ChatRepositoryImpl.prepareMessages()"
+      - "buildToolInstructions"
+    rag_expected: high
+    category: chat
+
+  # === Additional Questions ===
+
+  - id: q11
+    question: "Как добавить новый MCP сервер?"
+    expected_facts:
+      - "McpClient"
+      - "connect"
+      - "configuration"
+      - "McpModule"
+    rag_expected: medium
+    category: mcp
+
+  - id: q12
+    question: "Как работает ChatCommand?"
+    expected_facts:
+      - "CliktCommand"
+      - "CliChatController"
+      - "processMessage"
+      - "sessionId"
+    rag_expected: high
+    category: cli
+
+  - id: q13
+    question: "Какие типы памяти поддерживаются?"
+    expected_facts:
+      - "ShortTermMemory"
+      - "WorkingMemory"
+      - "LongTermMemory"
+      - "KnowledgeEntry"
+      - "ContextAnchor"
+    rag_expected: high
+    category: memory
+
+  - id: q14
+    question: "Как работает RAG поиск?"
+    expected_facts:
+      - "RagSearchService"
+      - "embedding"
+      - "similarity"
+      - "threshold"
+      - "topK"
+    rag_expected: high
+    category: rag
+
+  - id: q15
+    question: "Какие флаги есть у chat команды?"
+    expected_facts:
+      - "--rag"
+      - "--no-rag"
+      - "--compare"
+      - "--session"
+    rag_expected: high
+    category: cli
+
+# === Expected Results for Testing ===
+#
+# HIGH expectation questions (q1, q2, q3, q6, q9, q10, q12, q13, q14, q15):
+#   - With RAG: Should include specific file names, function names, exact class names
+#   - Without RAG: Generic responses, may hallucinate details
+#
+# MEDIUM expectation questions (q4, q5, q8, q11):
+#   - With RAG: Should find relevant context, may have partial matches
+#   - Without RAG: May give reasonable but less specific answers
+#
+# LOW expectation questions (q7):
+#   - With RAG: May or may not find relevant context
+#   - Without RAG: May answer from general knowledge
+#
+# === Testing Workflow ===
+#
+# 1. Index the project first:
+#    ./gradlew run --args="index run --rebuild"
+#
+# 2. Test individual questions:
+#    ./gradlew run --args="chat \"<question>\" --rag"
+#
+# 3. Compare RAG vs non-RAG:
+#    ./gradlew run --args="chat \"<question>\" --compare"
+#
+# 4. Batch testing (manual):
+#    for each question in questions:
+#      run with --rag
+#      run with --no-rag
+#      run with --compare
+#      compare responses

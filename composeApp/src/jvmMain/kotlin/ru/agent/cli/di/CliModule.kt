@@ -10,8 +10,10 @@ import ru.agent.features.chat.domain.usecase.SaveMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendSilentMessageUseCase
 import ru.agent.features.memory.domain.usecase.AddMessageToMemoryUseCase
+import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 import ru.agent.features.memory.domain.usecase.UpdateWorkingMemoryUseCase
 import ru.agent.features.rag.di.featureRagJvmModule
+import ru.agent.features.rag.domain.service.RagSearchService
 import ru.agent.features.task.domain.usecase.CancelTaskUseCase
 import ru.agent.features.task.domain.usecase.CreateTaskFromMessageUseCase
 import ru.agent.features.task.domain.usecase.GenerateTaskPlanUseCase
@@ -67,7 +69,9 @@ val cliModule = module {
             updateWorkingMemoryUseCase = get<UpdateWorkingMemoryUseCase>(),
             validationService = get(),
             progressTracker = get<ProgressTracker>(),
-            cliAnimator = get<CliAnimator>()
+            cliAnimator = get<CliAnimator>(),
+            getMemoryContextUseCase = get<GetMemoryContextUseCase>(),
+            ragSearchService = get<RagSearchService>()
         )
     }
 }

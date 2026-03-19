@@ -108,11 +108,13 @@ class ChatRepositoryImpl(
      *
      * @param workingDirectory Current working directory (FULL ABSOLUTE PATH)
      * @param tools List of available tools
+     * @param hasRagContext Whether RAG context is available for this request
      * @return Formatted system prompt with tool instructions
      */
     private suspend fun buildToolInstructions(
         workingDirectory: String,
-        tools: List<ToolDefinitionDto>
+        tools: List<ToolDefinitionDto>,
+        hasRagContext: Boolean = false
     ): String {
         val projectName = getWorkingDirectoryName(workingDirectory)
 
@@ -133,6 +135,48 @@ class ChatRepositoryImpl(
 
         // Check if scheduler tools are available
         val hasSchedulerTools = tools.any { it.function.name.startsWith("scheduler_") }
+
+        // Build RAG section if context is available
+        val ragSection = if (hasRagContext) {
+            """
+
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║              RAG CONTEXT - RETRIEVAL-AUGMENTED GENERATION                    ║
+            ╠══════════════════════════════════════════════════════════════════════════════╣
+            ║ YOU HAVE RAG CONTEXT in "RELEVANT CODE CONTEXT" section below.               ║
+            ║ This contains ACTUAL code snippets from the codebase matching your query.    ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
+
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║  MANDATORY RAG USAGE RULES - NO EXCEPTIONS                                   ║
+            ╠══════════════════════════════════════════════════════════════════════════════╣
+            ║ 1. USE file paths EXACTLY as shown in RAG context (they are REAL paths)      ║
+            ║ 2. DO NOT fabricate, guess, or hallucinate ANY file paths                    ║
+            ║ 3. DO NOT invent files that are not in RAG context or tool results           ║
+            ║ 4. When referencing code, use paths from RAG context verbatim                ║
+            ║ 5. If RAG doesn't have the info, say so - don't make things up              ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
+
+            RAG CONTEXT STRUCTURE:
+            Each snippet shows:
+            - Source: EXACT file path (use this path verbatim)
+            - Lines: Line numbers in the file
+            - Similarity: How relevant (0.0-1.0, higher = more relevant)
+            - Content: Actual code from that file
+
+            HOW TO RESPOND:
+            ✓ CORRECT: "According to RequestClassifier.kt (lines 45-67)..."
+            ✗ WRONG: "In src/utils/classifier.ts..." (if not in RAG context)
+            ✗ WRONG: Making up file paths that weren't in RAG results
+
+            WHEN RAG CONTEXT IS INSUFFICIENT:
+            - Say "Based on the indexed codebase, I found..."
+            - Use filesystem tools to explore further if needed
+            - Never fabricate information not present in RAG or tool results
+            """
+        } else {
+            ""
+        }
 
         return """
             You are an AI assistant in CLI (Command Line Interface) mode.
@@ -222,6 +266,7 @@ class ChatRepositoryImpl(
 
             === AVAILABLE TOOLS ===
             $toolsDescription
+            $ragSection
 
             === FILE EXAMPLE INTERACTIONS ===
 
@@ -296,6 +341,69 @@ class ChatRepositoryImpl(
     }
 
     /**
+     * Detect if user message requires RAG context enrichment.
+     * Used to determine if we should use RAG for semantic code search.
+     *
+     * @param message User message to analyze
+     * @param requestType Pre-classified request type (optional)
+     * @return true if message likely benefits from RAG
+     */
+    private fun isRagRequest(message: String, requestType: RequestType? = null): Boolean {
+        logger.d { "isRagRequest called: message='${message.take(50)}...', requestType=$requestType" }
+
+        // If request is already classified as RAG_REQUEST, use it
+        if (requestType == RequestType.RAG_REQUEST) {
+            logger.d { "isRagRequest: RAG_REQUEST classified, enabling RAG" }
+            return true
+        }
+
+        // Exclude file/terminal operations - they use MCP tools
+        if (requestType in listOf(
+            RequestType.FILE_OPERATION,
+            RequestType.TERMINAL_COMMAND,
+            RequestType.GIT_OPERATION,
+            RequestType.SCHEDULING
+        )) {
+            logger.d { "isRagRequest: $requestType excludes RAG" }
+            return false
+        }
+
+        // Simple heuristics to exclude trivial queries
+        val lowerMessage = message.lowercase().trim()
+        val trivialPatterns = listOf(
+            Regex("^(hi|hello|hey|привет|здравствуй|хай)[\\s!?.]*$"),
+            Regex("^(how are you|как дела|как ты)[\\s!?.]*$"),
+            Regex("^(thanks|thank you|спасибо|благодарю)[\\s!?.]*$"),
+            Regex("^(yes|no|да|нет|ок|ok)[\\s!?.]*$")
+        )
+
+        if (trivialPatterns.any { it.matches(lowerMessage) }) {
+            logger.d { "isRagRequest: trivial query, disabling RAG" }
+            return false
+        }
+
+        // For UNKNOWN type, check for RAG-like keywords
+        if (requestType == RequestType.UNKNOWN || requestType == null) {
+            val ragKeywords = listOf(
+                "where", "где", "how", "как", "architecture", "архитектура",
+                "implementation", "реализация", "class", "класс", "function", "функция",
+                "explain", "объясни", "find all", "найди все", "usage", "использование",
+                "code", "код", "project", "проект", "system", "система",
+                "source", "источник", "model", "модель", "service", "сервис",
+                "repository", "usecase", "chunk", "rag", "embedding"
+            )
+            val hasRagKeywords = ragKeywords.any { lowerMessage.contains(it) }
+            logger.d { "isRagRequest: UNKNOWN type, ragKeywords=$hasRagKeywords, lowerMessage='$lowerMessage'" }
+            return hasRagKeywords
+        }
+
+        // Default: use RAG for CODE_ANALYSIS and MULTI_TYPE
+        val result = requestType in listOf(RequestType.CODE_ANALYSIS, RequestType.MULTI_TYPE)
+        logger.d { "isRagRequest: $requestType, result=$result" }
+        return result
+    }
+
+    /**
      * Validate message order for API compatibility.
      * Every message with role="tool" must have a preceding assistant message with tool_calls.
      * Removes orphaned tool messages that would cause API errors.
@@ -338,21 +446,50 @@ class ChatRepositoryImpl(
     }
 
     /**
+     * Result of message preparation with RAG context.
+     *
+     * @property messages Prepared messages for API
+     * @property ragChunks RAG chunks that were used for context (empty if RAG disabled or no results)
+     */
+    private data class PreparedMessagesResult(
+        val messages: MutableList<MessageDto>,
+        val ragChunks: List<ru.agent.features.rag.domain.model.ChunkScore>
+    )
+
+    /**
      * Prepare messages for API request with system prompt and context.
      *
      * @param sessionId Session ID for context
      * @param additionalMessage Optional additional message to add
      * @param includeTools Whether to include tool instructions in system prompt
-     * @return List of prepared messages
+     * @param ragEnabled Enable RAG for context enrichment
+     * @param searchQuery Optional search query for RAG (defaults to message if not provided)
+     * @param requestType Pre-classified request type for intelligent RAG usage
+     * @return PreparedMessagesResult with messages and RAG chunks
      */
     private suspend fun prepareMessages(
         sessionId: String,
         additionalMessage: String? = null,
-        includeTools: Boolean = false
-    ): MutableList<MessageDto> {
+        includeTools: Boolean = false,
+        ragEnabled: Boolean = true,
+        searchQuery: String? = null,
+        requestType: RequestType? = null
+    ): PreparedMessagesResult {
+        // Determine if RAG should be used based on classification
+        val shouldUseRag = ragEnabled && when {
+            additionalMessage == null -> false // No message - no RAG
+            else -> isRagRequest(additionalMessage, requestType)
+        }
+
         val optimizedContext = getOptimizedContext(sessionId)
-        val memoryContext = getMemoryContextUseCase(sessionId)
+        val memoryContext = getMemoryContextUseCase(
+            sessionId = sessionId,
+            searchQuery = if (shouldUseRag) searchQuery ?: additionalMessage else null,
+            ragEnabled = shouldUseRag
+        )
         val systemPrompt = memoryContext.toSystemPrompt()
+        val hasRagContext = memoryContext.relevantChunks.isNotEmpty()
+        logger.d { "RAG context: hasRagContext=$hasRagContext, chunks=${memoryContext.relevantChunks.size}" }
 
         val messages = mutableListOf<MessageDto>()
 
@@ -365,7 +502,7 @@ class ChatRepositoryImpl(
             if (includeTools) {
                 val workingDirectory = getWorkingDirectory()
                 val tools = toolExecutor.getToolsForApi()
-                append(buildToolInstructions(workingDirectory, tools))
+                append(buildToolInstructions(workingDirectory, tools, hasRagContext))
             }
         }
 
@@ -392,9 +529,20 @@ class ChatRepositoryImpl(
             messages.add(MessageDto(role = "user", content = it))
         }
 
+        logger.i {
+            "Prepared messages: ${messages.size} total, RAG=$shouldUseRag, " +
+            "chunks=${memoryContext.relevantChunks.size}"
+        }
+
         // Validate message order - remove orphaned tool messages
         // This is a safety net since DB doesn't store tool_calls info
-        return validateMessageOrder(messages).toMutableList()
+        val validatedMessages = validateMessageOrder(messages).toMutableList()
+
+        // Return both messages and RAG chunks for sources
+        return PreparedMessagesResult(
+            messages = validatedMessages,
+            ragChunks = memoryContext.relevantChunks
+        )
     }
 
     /**
@@ -422,8 +570,14 @@ class ChatRepositoryImpl(
     }
 
     @OptIn(ExperimentalUuidApi::class)
-    override suspend fun sendMessage(sessionId: String, message: String): ResultWrapper<Message> {
-        logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..." }
+    override suspend fun sendMessage(
+        sessionId: String,
+        message: String,
+        ragEnabled: Boolean,
+        searchQuery: String?,
+        includeTools: Boolean
+    ): ResultWrapper<Message> {
+        logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..., ragEnabled: $ragEnabled" }
 
         return withContext(Dispatchers.IO) {
             try {
@@ -451,6 +605,15 @@ class ChatRepositoryImpl(
                     logger.w { "User request has warnings: ${requestValidation.violations.size}" }
                 }
 
+                // Classify request type for intelligent RAG usage
+                val classifier = ru.agent.mcp.orchestration.RequestClassifier()
+                val requestType = classifier.classify(message)
+                logger.i { "Request classified as: $requestType" }
+
+                // Determine if RAG should be used based on classification
+                val shouldUseRag = ragEnabled && isRagRequest(message, requestType)
+                logger.i { "RAG decision: enabled=$ragEnabled, shouldUse=$shouldUseRag, type=$requestType" }
+
                 // Step 1: Create user message with UUID
                 val userMessage = Message(
                     id = Uuid.random().toString(),
@@ -466,40 +629,81 @@ class ChatRepositoryImpl(
                 // Step 3: Increment message count in session
                 chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
 
-                // Step 4-6: Prepare messages with tools
-                val currentMessages = prepareMessages(sessionId, includeTools = true)
-                logger.i { "Sending request to DeepSeek API with ${currentMessages.size} messages" }
+                // Step 4-6: Prepare messages with tools and RAG
+                val prepareResult = prepareMessages(
+                    sessionId = sessionId,
+                    additionalMessage = message,  // <-- FIX: Pass message for RAG
+                    includeTools = includeTools,
+                    ragEnabled = shouldUseRag,
+                    searchQuery = searchQuery ?: message,
+                    requestType = requestType
+                )
+                val currentMessages = prepareResult.messages
+                val ragChunks = prepareResult.ragChunks
+                logger.d { "RAG chunks after prepareMessages: ${ragChunks.size}" }
+
+                logger.i {
+                    "Sending request to DeepSeek API with ${currentMessages.size} messages " +
+                    "(RAG=$shouldUseRag, type=$requestType)"
+                }
 
                 // Detect if user is asking for file operations
                 val isFileRequest = isFileOperationRequest(message)
-                if (isFileRequest) {
+                if (isFileRequest && includeTools) {
                     logger.i { "Detected file operation request, will require tool usage" }
                 }
 
-                // Step 7: Call DeepSeek API with tools
+                // Step 7: Call DeepSeek API
                 var iteration = 0
                 var finalResponse: ru.agent.features.chat.data.remote.dto.ChatResponse? = null
                 var finalContent: String? = null
 
-                // Enhanced loop detection: track recent tool call signatures
-                val toolCallHistory = mutableSetOf<String>()
-                val toolCallOrder = mutableListOf<String>()
+                // If tools are disabled, send simple request without tool loop
+                if (!includeTools) {
+                    logger.i { "Tools disabled, sending simple request (RAG=$shouldUseRag)" }
+                    val simpleResponse = try {
+                        deepSeekApiClient.sendMessage(ChatRequest.simple(messages = currentMessages))
+                    } catch (e: Exception) {
+                        logger.e(throwable = e) { "Error during simple API request: ${e.message}" }
+                        messageDao.deleteMessageById(userMessage.id)
+                        return@withContext ResultWrapper.Error(
+                            throwable = e,
+                            message = e.message ?: "API request failed"
+                        )
+                    }
 
-                // Track if model skipped tool on file request
-                var toolSkippedOnFileRequest = false
+                    if (simpleResponse.choices.isEmpty()) {
+                        logger.e { "Empty response from API" }
+                        messageDao.deleteMessageById(userMessage.id)
+                        return@withContext ResultWrapper.Error(
+                            throwable = IllegalStateException("Empty response from API"),
+                            message = "Received empty response from DeepSeek API"
+                        )
+                    }
 
-                logger.i { "Fetching tools for API request..." }
+                    finalResponse = simpleResponse
+                    finalContent = simpleResponse.choices.firstOrNull()?.message?.content
+                } else {
+                    // Tools enabled - use tool call loop
+                    // Enhanced loop detection: track recent tool call signatures
+                    val toolCallHistory = mutableSetOf<String>()
+                    val toolCallOrder = mutableListOf<String>()
 
-                while (iteration < maxToolIterations) {
-                    iteration++
+                    // Track if model skipped tool on file request
+                    var toolSkippedOnFileRequest = false
 
-                    // Prepare request - ALWAYS with tools
-                    // Use tool_choice="required" for file operations on first iteration
-                    val response = try {
-                        val tools = toolExecutor.getToolsForApi()
-                        val shouldForceToolUse = isFileRequest && iteration == 1
+                    logger.i { "Fetching tools for API request..." }
 
-                        logger.i { "Sending request WITH ${tools.size} tools (iteration: $iteration, forceTool: $shouldForceToolUse)" }
+                    while (iteration < maxToolIterations) {
+                        iteration++
+
+                        // Prepare request - ALWAYS with tools
+                        // Use tool_choice="required" for file operations on first iteration
+                        val response = try {
+                            val tools = toolExecutor.getToolsForApi()
+                            val shouldForceToolUse = isFileRequest && iteration == 1
+
+                            logger.i { "Sending request WITH ${tools.size} tools (iteration: $iteration, forceTool: $shouldForceToolUse)" }
 
                         // CRITICAL: Validate and fix message order before sending to API
                         // This removes orphaned tool messages that would cause API errors
@@ -641,8 +845,8 @@ class ChatRepositoryImpl(
                         }
 
                         // === Orchestrated Tool Execution with Parallelism ===
-                        // Classify request type for orchestration
-                        val requestType = when {
+                        // Use orchestration-specific request type (not the RAG classification)
+                        val orchestrationRequestType = when {
                             isFileRequest -> RequestType.FILE_OPERATION
                             else -> RequestType.UNKNOWN
                         }
@@ -686,9 +890,10 @@ class ChatRepositoryImpl(
                     finalResponse = response
                     finalContent = response.choices.firstOrNull()?.message?.content
                     break
-                }
+                    }
+                } // end of else block (tools enabled)
 
-                // Check if we exceeded max iterations
+                // Check if we exceeded max iterations (only relevant when tools are enabled)
                 if (finalContent == null && iteration >= maxToolIterations) {
                     logger.w { "Max tool iterations reached ($maxToolIterations)" }
                     finalContent = "Превышено максимальное количество вызовов инструментов ($maxToolIterations). " +
@@ -731,11 +936,15 @@ class ChatRepositoryImpl(
                 }
 
                 // Step 8: Create and save assistant message
+                val messageSources = ragChunks.takeIf { it.isNotEmpty() }
+                logger.d { "Creating assistant message with sources: ${messageSources?.size ?: 0} chunks" }
                 val assistantMessage = Message(
                     id = finalResponse?.id ?: Uuid.random().toString(),
                     content = aiResponse,
                     senderType = SenderType.ASSISTANT,
-                    timestamp = currentTimeMillis()
+                    timestamp = currentTimeMillis(),
+                    // Include RAG sources if available
+                    sources = messageSources
                 )
 
                 messageDao.insertMessage(assistantMessage.toEntity(sessionId))
@@ -805,7 +1014,8 @@ class ChatRepositoryImpl(
                 }
 
                 // Prepare messages with or without tools based on parameter
-                val currentMessages = prepareMessages(sessionId, additionalMessage = message, includeTools = includeTools).toMutableList()
+                val prepareResult = prepareMessages(sessionId, additionalMessage = message, includeTools = includeTools)
+                val currentMessages = prepareResult.messages
 
                 logger.i { "Sending silent request to DeepSeek API with ${currentMessages.size} messages" }
 

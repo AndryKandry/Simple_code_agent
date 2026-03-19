@@ -11,6 +11,8 @@ import ru.agent.features.rag.domain.model.IndexingStrategy
 import ru.agent.features.rag.domain.repository.DocumentIndexRepository
 import ru.agent.features.rag.domain.repository.EmbeddingRepository
 import ru.agent.features.rag.domain.repository.IndexMetadataRepository
+import ru.agent.features.rag.domain.service.RagSearchService
+import ru.agent.features.rag.domain.service.RagSearchServiceImpl
 import ru.agent.features.rag.pipeline.IndexStatsCalculator
 import ru.agent.features.rag.pipeline.IndexingPipeline
 import java.nio.file.Path
@@ -63,6 +65,15 @@ val featureRagJvmModule = module {
             embeddingRepository = get<EmbeddingRepository>(),
             metadataRepository = get<IndexMetadataRepository>(),
             statsCalculator = get()
+        )
+    }
+
+    // === RAG Search Service ===
+    single<RagSearchService> {
+        RagSearchServiceImpl(
+            embeddingClient = get(),
+            chunkRepository = get<DocumentIndexRepository>(),
+            embeddingRepository = get<EmbeddingRepository>()
         )
     }
 }

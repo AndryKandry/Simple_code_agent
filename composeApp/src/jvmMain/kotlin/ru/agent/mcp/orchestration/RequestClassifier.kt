@@ -79,6 +79,31 @@ class RequestClassifier {
         Regex("""(?i)\b(рефакторинг|оптимизируй)\s+(код|производительность)""")
     )
 
+    // === RAG Query Patterns ===
+    private val ragPatterns = listOf(
+        // Code location queries
+        Regex("""(?i)\b(where|where is|in which|which file|where are)\s+(is|are|the|implemented|defined|located)"""),
+        Regex("""(?i)\b(where|где)\s+(implemented|realized|defined|находится|реализован|определен)"""),
+        Regex("""(?i)\b(find|найди|search|поиск)\s+(the|all|implementation|class|function|method|usage)"""),
+
+        // Architecture queries
+        Regex("""(?i)\b(architecture|архитектура|structure|структура|design|дизайн)\s+(of|проекта|project|system|системы)"""),
+        Regex("""(?i)\b(how is|как\s*реализован|how does|как\s*работает)\s+(the|this|implemented|structured)"""),
+        Regex("""(?i)\b(explain|объясни|describe|опиши)\s+(the|architecture|structure|design)"""),
+
+        // Pattern search queries
+        Regex("""(?i)\b(find|найди|search|поиск)\s+(all|все|pattern|паттерн|usage|использование|occurrences)"""),
+        Regex("""(?i)\b(show|покажи|list|список)\s+(all|все|classes|классов|files|файлов|where|где)"""),
+
+        // Documentation queries
+        Regex("""(?i)\b(documentation|документация|readme|guide|руководство|docs)"""),
+        Regex("""(?i)\b(is there|есть\s*ли|does.*have|имеет\s*ли)\s+(documentation|docs|readme)"""),
+
+        // Code understanding queries
+        Regex("""(?i)\b(what does|что\s*делает|how works|как\s*работает|purpose of|назначение)"""),
+        Regex("""(?i)\b(understand|понять|explain|объясни|clarify|уточни)\s+(the|this|code|код|logic|логику)""")
+    )
+
     // === Multi-Type Patterns ===
     private val multiTypePatterns = listOf(
         // English
@@ -100,6 +125,19 @@ class RequestClassifier {
         val normalizedMessage = message.trim().lowercase()
 
         logger.d { "Classifying message: ${normalizedMessage.take(100)}..." }
+
+        // Check RAG patterns FIRST (before file operations)
+        // RAG queries can overlap with file operations, so we check RAG first
+        if (matchesAnyPattern(normalizedMessage, ragPatterns)) {
+            // But if this is clearly a file operation, terminal command, git or scheduling - don't count as RAG
+            if (!matchesAnyPattern(normalizedMessage, filePatterns) &&
+                !matchesAnyPattern(normalizedMessage, terminalPatterns) &&
+                !matchesAnyPattern(normalizedMessage, gitPatterns) &&
+                !matchesAnyPattern(normalizedMessage, schedulingPatterns)) {
+                logger.d { "Classified as RAG_REQUEST" }
+                return RequestType.RAG_REQUEST
+            }
+        }
 
         // Check each category in priority order
         // Git operations are checked before terminal because they are more specific
@@ -158,6 +196,7 @@ class RequestClassifier {
             RequestType.SCHEDULING -> schedulingPatterns
             RequestType.CODE_ANALYSIS -> codeAnalysisPatterns
             RequestType.MULTI_TYPE -> multiTypePatterns
+            RequestType.RAG_REQUEST -> ragPatterns
             RequestType.UNKNOWN -> return 0.0
         }
 
@@ -195,6 +234,7 @@ class RequestClassifier {
             RequestType.SCHEDULING -> setOf("scheduler")
             RequestType.CODE_ANALYSIS -> setOf("filesystem", "terminal")
             RequestType.MULTI_TYPE -> setOf("filesystem", "terminal", "scheduler")
+            RequestType.RAG_REQUEST -> emptySet() // RAG doesn't need MCP servers
             RequestType.UNKNOWN -> setOf("filesystem", "terminal", "scheduler")
         }
     }

@@ -1,0 +1,155 @@
+package ru.agent.features.rag.domain.service
+
+import co.touchlab.kermit.Logger
+import ru.agent.features.rag.data.remote.OllamaEmbeddingClient
+import ru.agent.features.rag.domain.model.ChunkScore
+import ru.agent.features.rag.domain.model.DocumentChunk
+import ru.agent.features.rag.domain.model.EmbeddingVector
+import ru.agent.features.rag.domain.model.RagConfig
+import ru.agent.features.rag.domain.repository.DocumentIndexRepository
+import ru.agent.features.rag.domain.repository.EmbeddingRepository
+
+/**
+ * JVM implementation of RAG search service.
+ *
+ * Uses Ollama for embedding generation and local database for chunk storage.
+ */
+class RagSearchServiceImpl(
+    private val embeddingClient: OllamaEmbeddingClient,
+    private val chunkRepository: DocumentIndexRepository,
+    private val embeddingRepository: EmbeddingRepository,
+    private val config: RagConfig = RagConfig()
+) : RagSearchService {
+
+    private val logger = Logger.withTag("RagSearchService")
+
+    override suspend fun search(query: String): List<ChunkScore> {
+        if (query.isBlank()) {
+            logger.w { "Empty query provided" }
+            return emptyList()
+        }
+
+        logger.i { "Starting RAG search for query: ${query.take(100)}..." }
+
+        // 1. Generate embedding for the query
+        val queryEmbedding: EmbeddingVector = try {
+            embeddingClient.generateEmbedding(query)
+        } catch (e: Exception) {
+            logger.e { "Failed to generate query embedding: ${e.message}" }
+            return emptyList()
+        }
+
+        logger.d { "Query embedding generated: ${queryEmbedding.dimension} dimensions" }
+
+        // 2. Get all embeddings from repository
+        val allEmbeddings: Map<String, EmbeddingVector> = embeddingRepository.getAllEmbeddings()
+
+        if (allEmbeddings.isEmpty()) {
+            logger.w { "No embeddings found in repository" }
+            return emptyList()
+        }
+
+        logger.d { "Found ${allEmbeddings.size} embeddings in repository" }
+
+        // 3. Get all chunks from repository
+        val allChunks: List<DocumentChunk> = chunkRepository.getAllChunks()
+
+        if (allChunks.isEmpty()) {
+            logger.w { "No chunks found in repository" }
+            return emptyList()
+        }
+
+        logger.d { "Found ${allChunks.size} chunks in repository" }
+
+        // 4. Calculate similarities and build results
+        val scoredChunks = calculateSimilarities(
+            queryEmbedding = queryEmbedding,
+            embeddings = allEmbeddings,
+            chunks = allChunks
+        )
+
+        // 5. Filter by threshold
+        val filteredChunks = scoredChunks
+            .filter { it.similarity >= config.similarityThreshold }
+
+        logger.d { "Filtered ${filteredChunks.size} chunks above threshold ${config.similarityThreshold}" }
+
+        // 6. Sort by similarity and take topK
+        val results = filteredChunks
+            .sortedByDescending { it.similarity }
+            .take(config.topK)
+            .mapIndexed { index, chunk -> chunk.copy(rank = index + 1) }
+
+        logger.i { "RAG search completed: ${results.size} results found" }
+
+        if (config.verbose) {
+            results.forEach { chunk ->
+                logger.d { "  [${chunk.rank}] ${chunk.fileName}: similarity=${chunk.similarity}" }
+            }
+        }
+
+        return results
+    }
+
+    override suspend fun isAvailable(): Boolean {
+        return try {
+            val connectionOk = embeddingClient.checkConnection()
+            val hasEmbeddings = embeddingRepository.getEmbeddingCount() > 0
+            val hasChunks = chunkRepository.getChunkCount() > 0
+
+            logger.d { "RAG availability: connection=$connectionOk, embeddings=$hasEmbeddings, chunks=$hasChunks" }
+
+            connectionOk && hasEmbeddings && hasChunks
+        } catch (e: Exception) {
+            logger.e { "Failed to check RAG availability: ${e.message}" }
+            false
+        }
+    }
+
+    override suspend fun getStats(): RagStats {
+        return try {
+            val chunkCount = chunkRepository.getChunkCount()
+            val embeddingCount = embeddingRepository.getEmbeddingCount()
+
+            RagStats(
+                totalChunks = chunkCount,
+                totalEmbeddings = embeddingCount,
+                isAvailable = chunkCount > 0 && embeddingCount > 0
+            )
+        } catch (e: Exception) {
+            logger.e { "Failed to get RAG stats: ${e.message}" }
+            RagStats(totalChunks = 0, totalEmbeddings = 0, isAvailable = false)
+        }
+    }
+
+    // === Private helper methods ===
+
+    /**
+     * Calculate cosine similarity between query embedding and all chunk embeddings.
+     */
+    private fun calculateSimilarities(
+        queryEmbedding: EmbeddingVector,
+        embeddings: Map<String, EmbeddingVector>,
+        chunks: List<DocumentChunk>
+    ): List<ChunkScore> {
+        val chunkMap = chunks.associateBy { it.chunkId }
+
+        return embeddings.mapNotNull { (chunkId, embedding) ->
+            val chunk = chunkMap[chunkId] ?: return@mapNotNull null
+
+            val similarity = queryEmbedding.cosineSimilarity(embedding)
+
+            ChunkScore(
+                chunkId = chunkId,
+                content = chunk.content,
+                source = chunk.source,
+                fileName = chunk.fileName,
+                similarity = similarity,
+                rank = 0,
+                startLine = chunk.startLine,
+                endLine = chunk.endLine,
+                language = chunk.language
+            )
+        }
+    }
+}

@@ -8,6 +8,8 @@ import ru.agent.features.memory.domain.repository.LongTermMemoryRepository
 import ru.agent.features.memory.domain.repository.ShortTermMemoryRepository
 import ru.agent.features.memory.domain.repository.WorkingMemoryRepository
 import ru.agent.features.profile.domain.repository.UserProfileRepository
+import ru.agent.features.rag.domain.model.ChunkScore
+import ru.agent.features.rag.domain.service.RagSearchService
 
 /**
  * UseCase для получения полного контекста памяти.
@@ -17,12 +19,14 @@ import ru.agent.features.profile.domain.repository.UserProfileRepository
  * - Working Memory (database)
  * - Long-term Memory (database)
  * - Project Invariants (active rules)
+ * - RAG Index (relevant code chunks)
  */
 class GetMemoryContextUseCase(
     private val shortTermMemoryRepository: ShortTermMemoryRepository,
     private val workingMemoryRepository: WorkingMemoryRepository,
     private val longTermMemoryRepository: LongTermMemoryRepository,
-    private val invariantRepository: InvariantRepository
+    private val invariantRepository: InvariantRepository,
+    private val ragSearchService: RagSearchService
 ) {
     private val logger = Logger.withTag("GetMemoryContextUseCase")
 
@@ -31,13 +35,15 @@ class GetMemoryContextUseCase(
      *
      * @param sessionId ID сессии чата
      * @param userId ID пользователя (по умолчанию "default")
-     * @param searchQuery Опциональный запрос для поиска в базе знаний
+     * @param searchQuery Опциональный запрос для поиска в базе знаний и RAG индексе
+     * @param ragEnabled Включить RAG поиск (по умолчанию true)
      * @return MemoryContext с агрегированными данными
      */
     suspend operator fun invoke(
         sessionId: String,
         userId: String = UserProfileRepository.DEFAULT_USER_ID,
-        searchQuery: String? = null
+        searchQuery: String? = null,
+        ragEnabled: Boolean = true
     ): MemoryContext {
         logger.d { "Building memory context for session: $sessionId" }
 
@@ -77,15 +83,33 @@ class GetMemoryContextUseCase(
 
         logger.d { "Active invariants: ${activeInvariants.size}" }
 
+        // 7. Get relevant chunks from RAG index
+        val relevantChunks: List<ChunkScore> = if (ragEnabled && !searchQuery.isNullOrBlank()) {
+            try {
+                ragSearchService.search(searchQuery).also { chunks ->
+                    logger.d { "RAG chunks found: ${chunks.size}" }
+                    chunks.forEach { chunk ->
+                        logger.v { "  - [${chunk.rank}] ${chunk.fileName}: similarity=${chunk.similarity}" }
+                    }
+                }
+            } catch (e: Exception) {
+                logger.e { "RAG search failed: ${e.message}" }
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+
         return MemoryContext(
             shortTermMemory = shortTermMemory,
             workingMemory = workingMemory,
             userProfile = userProfile,
             relevantKnowledge = relevantKnowledge,
             activeAnchors = activeAnchors,
-            activeInvariants = activeInvariants
+            activeInvariants = activeInvariants,
+            relevantChunks = relevantChunks
         ).also {
-            logger.i { "Memory context built for session: $sessionId with ${activeInvariants.size} invariants" }
+            logger.i { "Memory context built for session: $sessionId with ${activeInvariants.size} invariants and ${relevantChunks.size} RAG chunks" }
         }
     }
 }
