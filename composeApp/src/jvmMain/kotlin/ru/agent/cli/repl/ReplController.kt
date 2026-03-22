@@ -413,6 +413,9 @@ class ReplController {
             is CliChatResult.CompareResult -> {
                 // Compare result already output via callback
             }
+            is CliChatResult.RagModeCompareResult -> {
+                // RAG mode compare result already output via callback
+            }
         }
     }
 

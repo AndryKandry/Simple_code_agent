@@ -44,6 +44,11 @@ class ChatCommand : CliktCommand(
         help = "Compare RAG vs non-RAG responses side by side"
     ).flag()
 
+    private val ragCompareMode by option(
+        "--rag-compare",
+        help = "Compare RAG BASELINE vs ENHANCED modes (with/without reranking and query rewriting)"
+    ).flag()
+
     private val terminal = Terminal()
 
     // Get CliChatController from Koin singleton
@@ -61,7 +66,11 @@ class ChatCommand : CliktCommand(
                 val useRag = ragEnabled && !noRag
 
                 // Display RAG configuration if in compare mode
-                if (compareMode) {
+                if (ragCompareMode) {
+                    terminal.println(cyan("=== RAG Mode Compare ==="))
+                    terminal.println(cyan("Will compare BASELINE vs ENHANCED RAG modes"))
+                    terminal.println()
+                } else if (compareMode) {
                     terminal.println(cyan("=== RAG Compare Mode ==="))
                     terminal.println(cyan("Will execute query twice: with and without RAG"))
                     terminal.println()
@@ -75,7 +84,8 @@ class ChatCommand : CliktCommand(
                         message = fullMessage,
                         output = { output -> terminal.println(output) },
                         ragEnabled = useRag,
-                        compareMode = compareMode
+                        compareMode = compareMode,
+                        ragCompareMode = ragCompareMode
                     )
 
                     when (result) {
@@ -147,6 +157,9 @@ class ChatCommand : CliktCommand(
                                 is CliChatResult.CompareResult -> {
                                     // Compare result already printed via output callback
                                 }
+                                is CliChatResult.RagModeCompareResult -> {
+                                    // RAG mode compare result already printed via output callback
+                                }
                                 else -> {
                                     // For other cases (SimpleChat, TaskWaitingForApproval)
                                     // Already printed via output callback
@@ -155,6 +168,9 @@ class ChatCommand : CliktCommand(
                         }
                         is CliChatResult.CompareResult -> {
                             // Compare result already printed via output callback
+                        }
+                        is CliChatResult.RagModeCompareResult -> {
+                            // RAG mode compare result already printed via output callback
                         }
                     }
                 }

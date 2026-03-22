@@ -1,6 +1,7 @@
 package ru.agent.cli.controller
 
 import ru.agent.features.invariant.domain.service.ValidationWarning
+import ru.agent.features.rag.domain.model.ChunkScore
 import ru.agent.features.task.domain.model.TaskState
 import ru.agent.features.task.domain.validator.TransitionViolation
 
@@ -93,4 +94,17 @@ sealed class CliChatResult {
         val topChunkSimilarity: Double?,
         val durationMs: Long
     )
+
+    /**
+     * RAG mode comparison result - compares BASELINE vs ENHANCED RAG modes.
+     */
+    data class RagModeCompareResult(
+        val baselineDuration: Long,
+        val enhancedDuration: Long,
+        val baselineResults: List<ChunkScore>,
+        val enhancedResults: List<ChunkScore>,
+        val baselineAvgScore: Float,
+        val enhancedAvgScore: Float,
+        val warnings: List<ValidationWarning> = emptyList()
+    ) : CliChatResult()
 }

@@ -119,6 +119,7 @@ class CliChatController(
      * @param output Callback for outputting messages to terminal
      * @param ragEnabled Enable RAG (Retrieval-Augmented Generation) for context enrichment (default: true)
      * @param compareMode Compare RAG vs non-RAG responses side by side (default: false)
+     * @param ragCompareMode Compare RAG BASELINE vs ENHANCED modes (default: false)
      * @return CliChatResult indicating what happened
      */
     @OptIn(ExperimentalUuidApi::class)
@@ -126,7 +127,8 @@ class CliChatController(
         message: String,
         output: (String) -> Unit,
         ragEnabled: Boolean = true,
-        compareMode: Boolean = false
+        compareMode: Boolean = false,
+        ragCompareMode: Boolean = false
     ): CliChatResult {
         if (message.isBlank()) {
             return CliChatResult.Empty
@@ -154,6 +156,11 @@ class CliChatController(
 
             // Add user message to STM
             addMessageToMemoryUseCase(sessionId, optimisticMessage)
+
+            // Handle RAG mode comparison (BASELINE vs ENHANCED)
+            if (ragCompareMode) {
+                return handleRagModeCompare(message, output)
+            }
 
             // Handle compare mode separately
             if (compareMode) {
@@ -334,6 +341,151 @@ class CliChatController(
             responseWithoutRag = responseWithoutRag,
             responseWithRag = responseWithRag,
             ragMetrics = ragMetrics,
+            warnings = emptyList()
+        )
+    }
+
+    /**
+     * Handle RAG mode comparison - compare BASELINE vs ENHANCED RAG modes.
+     * BASELINE: Simple cosine similarity only
+     * ENHANCED: Query rewriting + reranking
+     */
+    private suspend fun handleRagModeCompare(
+        message: String,
+        output: (String) -> Unit
+    ): CliChatResult {
+        output(cyan(bold("=== RAG Mode Comparison ===")))
+        output(cyan("Query: ${message.take(100)}${if (message.length > 100) "..." else ""}"))
+        output(gray("Comparing BASELINE (cosine similarity) vs ENHANCED (reranking + query rewriting)"))
+        output("")
+
+        // Cast to implementation to use config parameter
+        val ragServiceImpl = ragSearchService as? ru.agent.features.rag.domain.service.RagSearchServiceImpl
+
+        if (ragServiceImpl == null) {
+            output(red("Error: RAG service implementation not available for comparison"))
+            return CliChatResult.Error("RAG service implementation not available")
+        }
+
+        // === BASELINE Mode ===
+        output(magenta(bold("=== BASELINE Mode (Cosine Similarity Only) ===")))
+        val baselineStartTime = System.currentTimeMillis()
+
+        val baselineConfig = ru.agent.features.rag.domain.model.RagConfig.BASELINE
+        val baselineResults = try {
+            ragServiceImpl.search(message, baselineConfig)
+        } catch (e: Exception) {
+            output(red("BASELINE search failed: ${e.message}"))
+            emptyList<ru.agent.features.rag.domain.model.ChunkScore>()
+        }
+
+        val baselineDuration = System.currentTimeMillis() - baselineStartTime
+        val baselineScores = baselineResults.map { it.similarity }
+        val baselineAvgScore = if (baselineScores.isNotEmpty()) baselineScores.average().toFloat() else 0f
+
+        output(gray("Duration: ${baselineDuration}ms"))
+        output(gray("Results: ${baselineResults.size} chunks"))
+        if (baselineScores.isNotEmpty()) {
+            output(gray("Top scores: [${baselineScores.take(5).joinToString(", ") { "%.2f".format(it) }}]"))
+        }
+        output("")
+
+        // Display baseline results
+        baselineResults.take(5).forEachIndexed { index, chunk ->
+            val scorePercent = (chunk.similarity * 100).toInt()
+            val scoreColor = when {
+                chunk.similarity >= 0.8f -> green
+                chunk.similarity >= 0.6f -> yellow
+                else -> gray
+            }
+            output(scoreColor("${index + 1}. ${chunk.fileName}:${chunk.startLine}-${chunk.endLine} ($scorePercent%)"))
+            chunk.section?.let { section ->
+                output(gray("   └─ $section"))
+            }
+        }
+        output("")
+
+        // === ENHANCED Mode ===
+        output(green(bold("=== ENHANCED Mode (Reranking + Query Rewriting) ===")))
+        output(gray("Original query: $message"))
+
+        val enhancedStartTime = System.currentTimeMillis()
+        val enhancedConfig = ru.agent.features.rag.domain.model.RagConfig.ENHANCED
+
+        val enhancedResults = try {
+            ragServiceImpl.search(message, enhancedConfig)
+        } catch (e: Exception) {
+            output(red("ENHANCED search failed: ${e.message}"))
+            emptyList<ru.agent.features.rag.domain.model.ChunkScore>()
+        }
+
+        val enhancedDuration = System.currentTimeMillis() - enhancedStartTime
+        val enhancedScores = enhancedResults.map { it.similarity }
+        val enhancedAvgScore = if (enhancedScores.isNotEmpty()) enhancedScores.average().toFloat() else 0f
+
+        output(gray("Duration: ${enhancedDuration}ms"))
+        output(gray("Results: ${enhancedResults.size} chunks"))
+        if (enhancedScores.isNotEmpty()) {
+            output(gray("Top scores: [${enhancedScores.take(5).joinToString(", ") { "%.2f".format(it) }}]"))
+        }
+        output("")
+
+        // Display enhanced results
+        enhancedResults.take(5).forEachIndexed { index, chunk ->
+            val scorePercent = (chunk.similarity * 100).toInt()
+            val scoreColor = when {
+                chunk.similarity >= 0.8f -> green
+                chunk.similarity >= 0.6f -> yellow
+                else -> gray
+            }
+            output(scoreColor("${index + 1}. ${chunk.fileName}:${chunk.startLine}-${chunk.endLine} ($scorePercent%)"))
+            chunk.section?.let { section ->
+                output(gray("   └─ $section"))
+            }
+        }
+        output("")
+
+        // === Comparison Summary ===
+        output(cyan(bold("=== Comparison Summary ===")))
+        output(gray("─".repeat(50)))
+
+        // Calculate differences
+        val durationDiff = enhancedDuration - baselineDuration
+        val topScoreBaseline = baselineScores.firstOrNull() ?: 0f
+        val topScoreEnhanced = enhancedScores.firstOrNull() ?: 0f
+        val topScoreDiff = topScoreEnhanced - topScoreBaseline
+        val avgScoreDiff = enhancedAvgScore - baselineAvgScore
+
+        // Format table
+        output(String.format("%-20s %-12s %-12s", "Metric", "BASELINE", "ENHANCED"))
+        output(gray("─".repeat(50)))
+        output(String.format("%-20s %-12s %-12s", "Duration", "${baselineDuration}ms", "${enhancedDuration}ms (+${durationDiff}ms)"))
+        output(String.format("%-20s %-12s %-12s", "Top score", "%.2f".format(topScoreBaseline), "%.2f (+%.2f)".format(topScoreEnhanced, topScoreDiff)))
+        output(String.format("%-20s %-12s %-12s", "Avg score", "%.2f".format(baselineAvgScore), "%.2f (+%.2f)".format(enhancedAvgScore, avgScoreDiff)))
+        output(String.format("%-20s %-12s %-12s", "Results count", baselineResults.size.toString(), enhancedResults.size.toString()))
+        output(String.format("%-20s %-12s %-12s", "Query rewriting", "No", "Yes"))
+        output(String.format("%-20s %-12s %-12s", "Reranking", "No", "Yes"))
+
+        output(gray("─".repeat(50)))
+
+        // Determine winner
+        if (topScoreEnhanced > topScoreBaseline) {
+            output(green("ENHANCED mode shows better top score (+${"%.2f".format(topScoreDiff)})"))
+        } else if (topScoreEnhanced < topScoreBaseline) {
+            output(yellow("BASELINE mode shows better top score (+${"%.2f".format(-topScoreDiff)})"))
+        } else {
+            output(gray("Both modes show equal top score"))
+        }
+
+        output(gray("Trade-off: ENHANCED mode takes ${durationDiff}ms longer but may provide more relevant results"))
+
+        return CliChatResult.RagModeCompareResult(
+            baselineDuration = baselineDuration,
+            enhancedDuration = enhancedDuration,
+            baselineResults = baselineResults,
+            enhancedResults = enhancedResults,
+            baselineAvgScore = baselineAvgScore,
+            enhancedAvgScore = enhancedAvgScore,
             warnings = emptyList()
         )
     }
