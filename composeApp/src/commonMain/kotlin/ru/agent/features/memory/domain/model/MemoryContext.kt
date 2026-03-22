@@ -3,6 +3,7 @@ package ru.agent.features.memory.domain.model
 import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.invariant.domain.model.Invariant
 import ru.agent.features.rag.domain.model.ChunkScore
+import ru.agent.features.rag.domain.model.RagResponse
 
 /**
  * Memory Context - агрегированный контекст памяти.
@@ -25,7 +26,8 @@ data class MemoryContext(
     val relevantKnowledge: List<KnowledgeEntry> = emptyList(),
     val activeAnchors: List<ContextAnchor> = emptyList(),
     val activeInvariants: List<Invariant> = emptyList(),
-    val relevantChunks: List<ChunkScore> = emptyList()
+    val relevantChunks: List<ChunkScore> = emptyList(),
+    val ragResponse: RagResponse? = null
 ) {
 
     /**
@@ -38,7 +40,8 @@ data class MemoryContext(
                 relevantKnowledge.isEmpty() &&
                 activeAnchors.isEmpty() &&
                 activeInvariants.isEmpty() &&
-                relevantChunks.isEmpty()
+                relevantChunks.isEmpty() &&
+                ragResponse == null
     }
 
     /**
@@ -58,7 +61,10 @@ data class MemoryContext(
         }
 
         // RAG контекст (code snippets from indexed files)
-        if (relevantChunks.isNotEmpty()) {
+        // Use ragResponse if available for better context info, fallback to relevantChunks
+        if (ragResponse != null && ragResponse.hasRelevantContext) {
+            parts.add(buildRagSection())
+        } else if (relevantChunks.isNotEmpty()) {
             parts.add(buildRagSection())
         }
 
@@ -213,9 +219,38 @@ data class MemoryContext(
     }
 
     private fun buildRagSection(): String {
-        val header = "--- RELEVANT CODE CONTEXT (RAG) ---\nFound ${relevantChunks.size} relevant code sections:\n"
+        // Prefer ragResponse if available, fallback to relevantChunks
+        val chunks = if (ragResponse != null && ragResponse.hasRelevantContext) {
+            ragResponse.sources.map { source ->
+                // Convert SourceInfo to ChunkScore-like format for display
+                ChunkScore(
+                    chunkId = source.chunkId,
+                    content = source.content,
+                    source = source.filePath,
+                    fileName = source.fileName,
+                    similarity = source.similarity,
+                    rank = source.rank,
+                    startLine = source.startLine,
+                    endLine = source.endLine,
+                    language = source.language,
+                    section = source.section
+                )
+            }
+        } else {
+            relevantChunks
+        }
 
-        val chunksInfo = relevantChunks.mapIndexed { index, chunk ->
+        if (chunks.isEmpty()) {
+            return ""
+        }
+
+        val relevanceInfo = ragResponse?.let { response ->
+            " (max similarity: ${"%.2f".format(response.maxSimilarity)})"
+        } ?: ""
+
+        val header = "--- RELEVANT CODE CONTEXT (RAG)$relevanceInfo ---\nFound ${chunks.size} relevant code sections:\n"
+
+        val chunksInfo = chunks.mapIndexed { index, chunk ->
             val rank = index + 1
             val locationInfo = if (chunk.startLine > 0 && chunk.endLine > 0) {
                 "Lines: ${chunk.startLine}-${chunk.endLine}"

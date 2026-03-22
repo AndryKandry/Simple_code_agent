@@ -33,7 +33,15 @@ data class RagConfig(
     val queryRewriterModel: String = "deepseek-r1:1.5b",
     val topKBeforeFilter: Int = 20,
     val topKAfterFilter: Int = 5,
-    val dynamicThreshold: Boolean = false
+    val dynamicThreshold: Boolean = false,
+
+    // Anti-hallucination features
+    /**
+     * Relevance threshold for "don't know" mode.
+     * If max similarity < this threshold, the system responds with "I don't know".
+     * This is different from similarityThreshold which is used for filtering candidates.
+     */
+    val relevanceThreshold: Float = 0.3f
 ) {
     companion object {
         /**
@@ -43,7 +51,8 @@ data class RagConfig(
             topK = 3,
             similarityThreshold = 0.5f,
             includeSource = true,
-            verbose = false
+            verbose = false,
+            relevanceThreshold = 0.4f
         )
 
         /**
@@ -53,7 +62,8 @@ data class RagConfig(
             topK = 10,
             similarityThreshold = 0.2f,
             includeSource = true,
-            verbose = false
+            verbose = false,
+            relevanceThreshold = 0.2f
         )
 
         /**
@@ -70,7 +80,8 @@ data class RagConfig(
             enableQueryRewriting = false, // Disabled by default - 1.5b model is too small for good rewriting
             enableMetrics = true,
             topKBeforeFilter = 20,
-            topKAfterFilter = 5
+            topKAfterFilter = 5,
+            relevanceThreshold = 0.3f
         )
 
         /**
@@ -83,7 +94,8 @@ data class RagConfig(
             verbose = false,
             enableReranking = false,
             enableQueryRewriting = false,
-            enableMetrics = true
+            enableMetrics = true,
+            relevanceThreshold = 0.3f
         )
     }
 

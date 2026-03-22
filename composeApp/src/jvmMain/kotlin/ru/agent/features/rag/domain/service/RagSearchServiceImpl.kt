@@ -2,6 +2,7 @@ package ru.agent.features.rag.domain.service
 
 import co.touchlab.kermit.Logger
 import ru.agent.features.rag.data.remote.OllamaEmbeddingClient
+import ru.agent.features.rag.domain.formatter.RagResponseFormatter
 import ru.agent.features.rag.domain.model.*
 import ru.agent.features.rag.domain.repository.DocumentIndexRepository
 import ru.agent.features.rag.domain.repository.EmbeddingRepository
@@ -220,7 +221,7 @@ class RagSearchServiceImpl(
             }
         }
 
-        // === STEP 7: Record Metrics ===
+            // === STEP 7: Record Metrics ===
         if (activeConfig.enableMetrics && metricsService != null) {
             val metrics = RagMetrics(
                 query = query,
@@ -238,6 +239,49 @@ class RagSearchServiceImpl(
         }
 
         return results
+    }
+
+    // === New Method: searchWithContext ===
+    /**
+     * Search with context information for anti-hallucination features.
+     * Returns RagResponse with sources, citations, and relevance information.
+     */
+    override suspend fun searchWithContext(query: String, config: RagConfig?): RagResponse {
+        val activeConfig = config ?: this.config
+        val chunks = search(query, activeConfig)
+
+        if (chunks.isEmpty()) {
+            logger.i { "No chunks found, returning 'don't know' response" }
+            return RagResponse.dontKnow(query)
+        }
+
+        val maxSimilarity = chunks.maxOfOrNull { it.similarity } ?: 0f
+        val hasRelevantContext = maxSimilarity >= activeConfig.relevanceThreshold
+
+        if (!hasRelevantContext) {
+            logger.i { "Max similarity $maxSimilarity below threshold ${activeConfig.relevanceThreshold}, returning 'don't know' response" }
+            return RagResponse.dontKnow(query)
+        }
+
+        // Build sources from chunks
+        val sources = chunks.map { SourceInfo.fromChunkScore(it) }
+
+        // Build citations from top chunks (by similarity)
+        val citations = chunks
+            .sortedByDescending { it.similarity }
+            .take(5) // Max 5 citations
+            .map { Citation.fromChunkScore(it) }
+
+        logger.i { "RAG context found: ${sources.size} sources, ${citations.size} citations, maxSimilarity=${"%.2f".format(maxSimilarity)}" }
+
+        return RagResponse(
+            answer = "", // Answer will be filled by ChatRepository after LLM response
+            sources = sources,
+            citations = citations,
+            hasRelevantContext = true,
+            maxSimilarity = maxSimilarity,
+            totalChunksRetrieved = chunks.size
+        )
     }
 
     override suspend fun isAvailable(): Boolean {

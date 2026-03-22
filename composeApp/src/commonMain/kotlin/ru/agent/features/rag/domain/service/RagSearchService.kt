@@ -2,6 +2,7 @@ package ru.agent.features.rag.domain.service
 
 import ru.agent.features.rag.domain.model.ChunkScore
 import ru.agent.features.rag.domain.model.RagConfig
+import ru.agent.features.rag.domain.model.RagResponse
 
 /**
  * Service interface for performing RAG (Retrieval-Augmented Generation) searches.
@@ -19,6 +20,18 @@ interface RagSearchService {
      * @return List of scored chunks sorted by similarity (descending)
      */
     suspend fun search(query: String, config: RagConfig? = null): List<ChunkScore>
+
+    /**
+     * Search for chunks and return structured response with context information.
+     *
+     * This method provides additional metadata about the search results,
+     * including whether relevant context was found (for "don't know" mode).
+     *
+     * @param query The search query text
+     * @param config Optional RAG configuration (uses default if not provided)
+     * @return RagResponse with chunks, sources, citations, and relevance information
+     */
+    suspend fun searchWithContext(query: String, config: RagConfig? = null): RagResponse
 
     /**
      * Check if RAG search is available (embedding model connection and indexed data).

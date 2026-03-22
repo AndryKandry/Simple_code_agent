@@ -9,6 +9,7 @@ import ru.agent.features.memory.domain.repository.ShortTermMemoryRepository
 import ru.agent.features.memory.domain.repository.WorkingMemoryRepository
 import ru.agent.features.profile.domain.repository.UserProfileRepository
 import ru.agent.features.rag.domain.model.ChunkScore
+import ru.agent.features.rag.domain.model.RagResponse
 import ru.agent.features.rag.domain.service.RagSearchService
 
 /**
@@ -83,15 +84,19 @@ class GetMemoryContextUseCase(
 
         logger.d { "Active invariants: ${activeInvariants.size}" }
 
-        // 7. Get relevant chunks from RAG index
+        // 7. Get relevant chunks from RAG index and build RagResponse
+        var ragResponse: RagResponse? = null
         val relevantChunks: List<ChunkScore> = if (ragEnabled && !searchQuery.isNullOrBlank()) {
             try {
-                ragSearchService.search(searchQuery).also { chunks ->
-                    logger.d { "RAG chunks found: ${chunks.size}" }
-                    chunks.forEach { chunk ->
-                        logger.v { "  - [${chunk.rank}] ${chunk.fileName}: similarity=${chunk.similarity}" }
-                    }
+                // Use search() to get ChunkScore directly, then build RagResponse
+                val chunks = ragSearchService.search(searchQuery)
+                ragResponse = RagResponse.fromChunks(chunks, searchQuery)
+
+                logger.d { "RAG chunks found: ${chunks.size}, hasRelevantContext: ${ragResponse.hasRelevantContext}" }
+                chunks.forEach { chunk ->
+                    logger.v { "  - [${chunk.rank}] ${chunk.fileName}: similarity=${chunk.similarity}" }
                 }
+                chunks
             } catch (e: Exception) {
                 logger.e { "RAG search failed: ${e.message}" }
                 emptyList()
@@ -107,7 +112,8 @@ class GetMemoryContextUseCase(
             relevantKnowledge = relevantKnowledge,
             activeAnchors = activeAnchors,
             activeInvariants = activeInvariants,
-            relevantChunks = relevantChunks
+            relevantChunks = relevantChunks,
+            ragResponse = ragResponse
         ).also {
             logger.i { "Memory context built for session: $sessionId with ${activeInvariants.size} invariants and ${relevantChunks.size} RAG chunks" }
         }
