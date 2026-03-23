@@ -81,8 +81,8 @@ data class RagResponse(
             """.trimMargin()
         }
 
-        private const val DEFAULT_RELEVANCE_THRESHOLD = 0.3f
-        private const val DEFAULT_MAX_CITATIONS = 5
+        private const val DEFAULT_RELEVANCE_THRESHOLD = 0.5f
+        const val DEFAULT_MAX_CITATIONS = 5
 
         /**
          * Create RagResponse from a list of ChunkScore results.
@@ -101,12 +101,19 @@ data class RagResponse(
                 return dontKnow(query)
             }
 
-            val sources = chunks.map { SourceInfo.fromChunkScore(it) }
             val maxSimilarity = chunks.maxOfOrNull { it.similarity } ?: 0f
             val hasRelevantContext = maxSimilarity >= relevanceThreshold
 
-            val citations = chunks
-                .filter { it.similarity >= relevanceThreshold }
+            // If no relevant context, return "don't know" with empty sources
+            if (!hasRelevantContext) {
+                return dontKnow(query)
+            }
+
+            // Filter sources by relevance threshold - only include relevant chunks
+            val relevantChunks = chunks.filter { it.similarity >= relevanceThreshold }
+            val sources = relevantChunks.map { SourceInfo.fromChunkScore(it) }
+
+            val citations = relevantChunks
                 .take(DEFAULT_MAX_CITATIONS)
                 .map { Citation.fromChunkScore(it) }
 
@@ -114,7 +121,7 @@ data class RagResponse(
                 answer = "", // Will be filled after LLM generation
                 sources = sources,
                 citations = citations,
-                hasRelevantContext = hasRelevantContext,
+                hasRelevantContext = true,
                 maxSimilarity = maxSimilarity,
                 totalChunksRetrieved = chunks.size
             )

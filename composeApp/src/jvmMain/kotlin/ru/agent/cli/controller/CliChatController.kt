@@ -516,8 +516,15 @@ class CliChatController(
             emptyList()
         }
 
+        // Show spinner while waiting for AI response
+        output("") // Add blank line before spinner
+        val spinnerJob = cliAnimator.showSpinner(
+            message = if (ragEnabled) "Searching and generating..." else "Generating..."
+        )
+
         return when (val result = sendMessageUseCase(sessionId, message, ragEnabled)) {
             is ResultWrapper.Success -> {
+                spinnerJob.cancel()
                 val response = result.value.content
 
                 // Check if this is a system message (blocked by invariant)
@@ -567,6 +574,7 @@ class CliChatController(
                 }
             }
             is ResultWrapper.Error -> {
+                spinnerJob.cancel()
                 val throwable = result.throwable
                 logger.e(throwable = throwable) { "Error in processMessage: ${throwable?.message}" }
 

@@ -53,6 +53,11 @@ class CreateTaskFromMessageUseCase(
     private fun analyzeMessage(message: String): Pair<String, String?>? {
         val trimmedMessage = message.trim()
 
+        // Skip question-only messages - they should use RAG, not create tasks
+        if (isQuestion(trimmedMessage)) {
+            return null
+        }
+
         // Skip short messages (likely casual conversation)
         if (trimmedMessage.length < MIN_MESSAGE_LENGTH) {
             return null
@@ -156,6 +161,32 @@ class CreateTaskFromMessageUseCase(
             wordCount < 100 -> 4
             else -> 5
         }
+    }
+
+    /**
+     * Checks if the message is a question.
+     * Questions should be handled by RAG, not as tasks.
+     */
+    private fun isQuestion(message: String): Boolean {
+        val trimmed = message.trim()
+
+        // Check if starts with question word
+        val questionStarters = listOf(
+            "как", "какая", "какой", "какие", "кто", "что", "где", "когда", "почему",
+            "what", "which", "who", "where", "when", "why", "how"
+        )
+
+        val firstWord = trimmed.split(Regex("\\s+")).firstOrNull()?.lowercase() ?: ""
+        if (firstWord in questionStarters) {
+            return true
+        }
+
+        // Check if ends with question mark
+        if (trimmed.endsWith("?")) {
+            return true
+        }
+
+        return false
     }
 
     companion object {

@@ -41,7 +41,7 @@ data class RagConfig(
      * If max similarity < this threshold, the system responds with "I don't know".
      * This is different from similarityThreshold which is used for filtering candidates.
      */
-    val relevanceThreshold: Float = 0.3f
+    val relevanceThreshold: Float = 0.5f
 ) {
     companion object {
         /**
@@ -52,7 +52,7 @@ data class RagConfig(
             similarityThreshold = 0.5f,
             includeSource = true,
             verbose = false,
-            relevanceThreshold = 0.4f
+            relevanceThreshold = 0.5f
         )
 
         /**
@@ -60,10 +60,10 @@ data class RagConfig(
          */
         val BROAD = RagConfig(
             topK = 10,
-            similarityThreshold = 0.2f,
+            similarityThreshold = 0.3f,
             includeSource = true,
             verbose = false,
-            relevanceThreshold = 0.2f
+            relevanceThreshold = 0.3f
         )
 
         /**
@@ -81,7 +81,7 @@ data class RagConfig(
             enableMetrics = true,
             topKBeforeFilter = 20,
             topKAfterFilter = 5,
-            relevanceThreshold = 0.3f
+            relevanceThreshold = 0.4f
         )
 
         /**
@@ -95,7 +95,7 @@ data class RagConfig(
             enableReranking = false,
             enableQueryRewriting = false,
             enableMetrics = true,
-            relevanceThreshold = 0.3f
+            relevanceThreshold = 0.5f
         )
     }
 
