@@ -76,9 +76,9 @@ object RagResponseFormatter {
         val location = source.getLocationString()
 
         val section = source.section?.let { " [$it]" } ?: ""
-        val similarity = "%.2f".format(source.similarity)
+        val similarity = (source.similarity * 100).toInt()
 
-        return "$number. $location$section (similarity: $similarity)"
+        return "$number. $location$section (similarity: $similarity%)"
     }
 
     /**

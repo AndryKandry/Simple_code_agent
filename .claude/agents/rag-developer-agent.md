@@ -534,6 +534,92 @@ features/rag/
 4. **Прогресс** - report progress для долгих операций
 5. **Error handling** - graceful degradation при ошибках
 
+## Task Memory Integration
+
+### Task Context с RAG
+
+При интеграции с Task Memory для мини-чата:
+
+```kotlin
+/**
+ * Запись RAG запроса в историю задачи
+ */
+suspend fun recordRagQuery(
+    sessionId: String,
+    query: String,
+    chunksFound: Int,
+    avgSimilarity: Double,
+    topSources: List<String>
+): TaskContext
+
+/**
+ * Получение сводки RAG активности задачи
+ */
+data class RagActivitySummary(
+    val totalQueries: Int,
+    val avgChunksPerQuery: Double,
+    val mostQueriedFiles: List<String>,  // Топ файлов по запросам
+    val recentQueries: List<String>       // Последние 5 запросов
+)
+```
+
+### Enriched Prompt для Chat
+
+```kotlin
+/**
+ * Построение enriched prompt для мини-чата
+ */
+fun buildEnrichedPrompt(
+    userMessage: String,
+    taskContext: ContextSummary,
+    ragResponse: RagResponse,
+    chatHistory: List<Message>
+): String = buildString {
+    // 1. Task Context
+    if (taskContext.goal != null) {
+        appendLine("## Task Goal")
+        appendLine(taskContext.goal)
+        appendLine()
+    }
+
+    if (taskContext.definedTerms.isNotEmpty()) {
+        appendLine("## Terminology")
+        taskContext.definedTerms.forEach { (term, def) ->
+            appendLine("- **$term**: $def")
+        }
+        appendLine()
+    }
+
+    if (taskContext.constraints.isNotEmpty()) {
+        appendLine("## Constraints")
+        taskContext.constraints.forEach { appendLine("- $it") }
+        appendLine()
+    }
+
+    // 2. RAG Sources
+    if (ragResponse.chunks.isNotEmpty()) {
+        appendLine("## Relevant Code")
+        ragResponse.sources.forEach { source ->
+            appendLine("- [${source.fileName}:${source.startLine}]")
+        }
+        appendLine()
+    }
+
+    // 3. Instructions
+    appendLine("## Instructions")
+    appendLine("- Answer based on the provided RAG context")
+    appendLine("- Always cite sources: [file:line]")
+    appendLine("- Respect defined terminology")
+    appendLine("- Follow constraints")
+    appendLine("- Track unresolved questions")
+
+    // 4. User Message
+    appendLine()
+    appendLine("## User Question")
+    appendLine(userMessage)
+}
+```
+
 ## Check-list
 
 - [ ] Создан OllamaEmbeddingClient?
@@ -543,6 +629,7 @@ features/rag/
 - [ ] Добавлены domain models?
 - [ ] Созданы repository interfaces?
 - [ ] Добавлена обработка ошибок?
+- [ ] При интеграции с Task Memory: recordRagQuery()?
 
 ## Работа с Code Review
 

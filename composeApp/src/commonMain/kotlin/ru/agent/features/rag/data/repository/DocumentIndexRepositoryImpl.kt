@@ -1,5 +1,6 @@
 package ru.agent.features.rag.data.repository
 
+import ru.agent.core.time.currentTimeMillis
 import ru.agent.features.rag.data.local.dao.DocumentChunkDao
 import ru.agent.features.rag.data.local.entity.DocumentChunkEntity
 import ru.agent.features.rag.domain.model.DocumentChunk
@@ -27,7 +28,7 @@ class DocumentIndexRepositoryImpl(
         endLine = this.endLine,
         section = this.section,
         tokenCount = this.tokenCount,
-        createdAt = System.currentTimeMillis()
+        createdAt = currentTimeMillis()
     )
 
     /**

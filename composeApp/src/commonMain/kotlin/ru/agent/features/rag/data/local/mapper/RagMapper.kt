@@ -35,7 +35,7 @@ object RagMapper {
     /**
      * Convert DocumentChunk domain model to DocumentChunkEntity.
      */
-    fun DocumentChunk.toEntity(): DocumentChunkEntity {
+    fun DocumentChunk.toEntity(currentTimeMillis: Long): DocumentChunkEntity {
         return DocumentChunkEntity(
             chunkId = chunkId,
             content = content,
@@ -46,7 +46,7 @@ object RagMapper {
             endLine = endLine,
             section = section,
             tokenCount = tokenCount,
-            createdAt = System.currentTimeMillis()
+            createdAt = currentTimeMillis
         )
     }
 
@@ -60,8 +60,8 @@ object RagMapper {
     /**
      * Convert list of DocumentChunk to list of DocumentChunkEntity.
      */
-    fun List<DocumentChunk>.toChunkEntity(): List<DocumentChunkEntity> {
-        return this.map { it.toEntity() }
+    fun List<DocumentChunk>.toChunkEntity(currentTimeMillis: Long): List<DocumentChunkEntity> {
+        return this.map { it.toEntity(currentTimeMillis) }
     }
 
     // === Embedding ===

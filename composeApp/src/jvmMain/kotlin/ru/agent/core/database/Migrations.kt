@@ -223,11 +223,54 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
 }
 
 /**
+ * Миграция с версии 10 на версию 11.
+ *
+ * Создает таблицу task_context для хранения контекста задачи в мини-чате.
+ *
+ * Note: Foreign key на chat_sessions убран для поддержки независимых сессий
+ * (например, MiniChat может работать без создания ChatSession).
+ */
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(connection: SQLiteConnection) {
+        // Создаем таблицу task_context (без foreign key для независимости)
+        connection.prepare(
+            """
+            CREATE TABLE IF NOT EXISTS task_context (
+                id TEXT NOT NULL PRIMARY KEY,
+                sessionId TEXT NOT NULL,
+                goal TEXT,
+                clarifications TEXT NOT NULL,
+                constraints TEXT NOT NULL,
+                ragQueries TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent()
+        ).use { statement ->
+            statement.step()
+        }
+
+        // Создаем индексы для task_context
+        listOf(
+            "CREATE UNIQUE INDEX IF NOT EXISTS index_task_context_sessionId ON task_context(sessionId)",
+            "CREATE INDEX IF NOT EXISTS index_task_context_stage ON task_context(stage)",
+            "CREATE INDEX IF NOT EXISTS index_task_context_createdAt ON task_context(createdAt)"
+        ).forEach { sql ->
+            connection.prepare(sql).use { statement ->
+                statement.step()
+            }
+        }
+    }
+}
+
+/**
  * Список всех миграций для добавления в Room database builder.
  */
 val ALL_MIGRATIONS = listOf(
     MIGRATION_6_7,
     MIGRATION_7_8,
     MIGRATION_8_9,
-    MIGRATION_9_10
+    MIGRATION_9_10,
+    MIGRATION_10_11
 )

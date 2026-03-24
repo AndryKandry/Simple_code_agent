@@ -622,9 +622,11 @@ class ChatRepositoryImpl(
         message: String,
         ragEnabled: Boolean,
         searchQuery: String?,
-        includeTools: Boolean
+        includeTools: Boolean,
+        skipInvariantValidation: Boolean,
+        skipMarkdownFormatting: Boolean
     ): ResultWrapper<Message> {
-        logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..., ragEnabled: $ragEnabled" }
+        logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..., ragEnabled: $ragEnabled, skipInvariantValidation: $skipInvariantValidation" }
 
         return withContext(Dispatchers.IO) {
             try {
@@ -632,24 +634,26 @@ class ChatRepositoryImpl(
                 ensureSessionExists(sessionId)
 
                 // === Validate user request against invariants ===
-                val requestValidation = validateInvariantViolationUseCase(
-                    text = message,
-                    checkType = CheckType.USER_REQUEST
-                )
-
-                if (requestValidation.shouldBlock) {
-                    logger.w { "User request blocked by invariant: ${requestValidation.blockMessage}" }
-                    return@withContext ResultWrapper.Error(
-                        throwable = InvariantViolationException(
-                            message = requestValidation.blockMessage ?: "Invariant violation",
-                            violations = requestValidation.violations
-                        ),
-                        message = requestValidation.blockMessage ?: "Запрос заблокирован из-за нарушения правил проекта"
+                if (!skipInvariantValidation) {
+                    val requestValidation = validateInvariantViolationUseCase(
+                        text = message,
+                        checkType = CheckType.USER_REQUEST
                     )
-                }
 
-                if (requestValidation.hasViolations) {
-                    logger.w { "User request has warnings: ${requestValidation.violations.size}" }
+                    if (requestValidation.shouldBlock) {
+                        logger.w { "User request blocked by invariant: ${requestValidation.blockMessage}" }
+                        return@withContext ResultWrapper.Error(
+                            throwable = InvariantViolationException(
+                                message = requestValidation.blockMessage ?: "Invariant violation",
+                                violations = requestValidation.violations
+                            ),
+                            message = requestValidation.blockMessage ?: "Запрос заблокирован из-за нарушения правил проекта"
+                        )
+                    }
+
+                    if (requestValidation.hasViolations) {
+                        logger.w { "User request has warnings: ${requestValidation.violations.size}" }
+                    }
                 }
 
                 // Classify request type for intelligent RAG usage
@@ -1015,49 +1019,60 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                val responseValidation = validateInvariantViolationUseCase(
-                    text = aiResponse,
-                    checkType = CheckType.AI_RESPONSE
-                )
-
-                if (responseValidation.shouldBlock) {
-                    logger.w { "AI response blocked by invariant: ${responseValidation.blockMessage}" }
-                    messageDao.deleteMessageById(userMessage.id)
-
-                    val blockedMessage = Message(
-                        id = Uuid.random().toString(),
-                        content = "Сгенерированный ответ нарушает инвариант проекта:\n\n${responseValidation.blockMessage}\n\nПожалуйста, уточните запрос.",
-                        senderType = SenderType.SYSTEM,
-                        timestamp = currentTimeMillis()
+                // === Validate AI response against invariants ===
+                if (!skipInvariantValidation) {
+                    val responseValidation = validateInvariantViolationUseCase(
+                        text = aiResponse,
+                        checkType = CheckType.AI_RESPONSE
                     )
 
-                    return@withContext ResultWrapper.Success(blockedMessage)
-                }
+                    if (responseValidation.shouldBlock) {
+                        logger.w { "AI response blocked by invariant: ${responseValidation.blockMessage}" }
+                        messageDao.deleteMessageById(userMessage.id)
 
-                if (responseValidation.hasViolations) {
-                    logger.w { "AI response has warnings: ${responseValidation.violations.size}" }
+                        val blockedMessage = Message(
+                            id = Uuid.random().toString(),
+                            content = "Сгенерированный ответ нарушает инвариант проекта:\n\n${responseValidation.blockMessage}\n\nПожалуйста, уточните запрос.",
+                            senderType = SenderType.SYSTEM,
+                            timestamp = currentTimeMillis()
+                        )
+
+                        return@withContext ResultWrapper.Success(blockedMessage)
+                    }
+
+                    if (responseValidation.hasViolations) {
+                        logger.w { "AI response has warnings: ${responseValidation.violations.size}" }
+                    }
                 }
 
                 // Step 8: Format response with sources and citations
                 val messageSources = ragChunks.takeIf { it.isNotEmpty() }
 
-                val formattedContent = if (!messageSources.isNullOrEmpty()) {
-                    logger.d { "Formatting response with ${messageSources.size} sources and citations" }
-                    try {
-                        RagResponseFormatter.appendSourcesAndCitations(
-                            answer = aiResponse,
-                            chunks = messageSources,
-                            relevanceThreshold = RagConfig().relevanceThreshold,
-                            maxCitations = RagResponse.DEFAULT_MAX_CITATIONS
-                        )
-                    } catch (e: Exception) {
-                        logger.e(throwable = e) { "Error formatting RAG response with sources: ${e.message}" }
-                        // Fallback to raw AI response on formatting error
+                val formattedContent = when {
+                    skipMarkdownFormatting -> {
+                        // For mini-chat: skip markdown formatting, sources are displayed separately
+                        logger.d { "Skipping markdown formatting for mini-chat" }
                         aiResponse
                     }
-                } else {
-                    logger.d { "No RAG sources, using raw AI response" }
-                    aiResponse
+                    !messageSources.isNullOrEmpty() -> {
+                        logger.d { "Formatting response with ${messageSources.size} sources and citations" }
+                        try {
+                            RagResponseFormatter.appendSourcesAndCitations(
+                                answer = aiResponse,
+                                chunks = messageSources,
+                                relevanceThreshold = RagConfig().relevanceThreshold,
+                                maxCitations = RagResponse.DEFAULT_MAX_CITATIONS
+                            )
+                        } catch (e: Exception) {
+                            logger.e(throwable = e) { "Error formatting RAG response with sources: ${e.message}" }
+                            // Fallback to raw AI response on formatting error
+                            aiResponse
+                        }
+                    }
+                    else -> {
+                        logger.d { "No RAG sources, using raw AI response" }
+                        aiResponse
+                    }
                 }
 
                 logger.d { "Creating assistant message with sources: ${messageSources?.size ?: 0} chunks" }

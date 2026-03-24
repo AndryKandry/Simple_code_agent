@@ -2,6 +2,7 @@ package ru.agent.cli.di
 
 import org.koin.dsl.module
 import ru.agent.cli.controller.CliChatController
+import ru.agent.cli.controller.MiniChatController
 import ru.agent.cli.visualization.CliAnimator
 import ru.agent.cli.visualization.ProgressTracker
 import ru.agent.features.chat.di.featureChatJvmModule
@@ -23,6 +24,9 @@ import ru.agent.features.task.domain.usecase.ResumeTaskUseCase
 import ru.agent.features.task.domain.usecase.TransitionTaskStageUseCase
 import ru.agent.features.task.domain.usecase.UpdateTaskStateUseCase
 import ru.agent.features.task.domain.usecase.ValidateTaskResultUseCase
+import ru.agent.features.taskcontext.domain.usecase.GetEnrichedPromptUseCase
+import ru.agent.features.taskcontext.domain.usecase.InitializeTaskContextUseCase
+import ru.agent.features.taskcontext.domain.usecase.UpdateTaskContextFromMessageUseCase
 import ru.agent.mcp.di.mcpModule
 import ru.agent.mcp.orchestration.di.orchestrationModule
 
@@ -71,6 +75,18 @@ val cliModule = module {
             progressTracker = get<ProgressTracker>(),
             cliAnimator = get<CliAnimator>(),
             getMemoryContextUseCase = get<GetMemoryContextUseCase>(),
+            ragSearchService = get<RagSearchService>()
+        )
+    }
+
+    // Mini-Chat Controller - singleton
+    single<MiniChatController> {
+        MiniChatController(
+            initializeTaskContextUseCase = get<InitializeTaskContextUseCase>(),
+            updateTaskContextFromMessageUseCase = get<UpdateTaskContextFromMessageUseCase>(),
+            getEnrichedPromptUseCase = get<GetEnrichedPromptUseCase>(),
+            sendMessageUseCase = get<SendMessageUseCase>(),
+            addMessageToMemoryUseCase = get<AddMessageToMemoryUseCase>(),
             ragSearchService = get<RagSearchService>()
         )
     }

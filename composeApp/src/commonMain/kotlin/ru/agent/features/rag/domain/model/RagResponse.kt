@@ -31,7 +31,7 @@ data class RagResponse(
      */
     fun toSummary(): String {
         return "RagResponse(sources=${sources.size}, citations=${citations.size}, " +
-               "hasContext=$hasRelevantContext, maxSimilarity=${"%.3f".format(maxSimilarity)})"
+               "hasContext=$hasRelevantContext, maxSimilarity=$maxSimilarity)"
     }
 
     companion object {

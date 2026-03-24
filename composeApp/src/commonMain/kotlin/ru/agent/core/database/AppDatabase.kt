@@ -30,6 +30,8 @@ import ru.agent.features.rag.data.local.dao.IndexMetadataDao
 import ru.agent.features.rag.data.local.entity.DocumentChunkEntity
 import ru.agent.features.rag.data.local.entity.EmbeddingEntity
 import ru.agent.features.rag.data.local.entity.IndexMetadataEntity
+import ru.agent.features.taskcontext.data.local.dao.TaskContextDao
+import ru.agent.features.taskcontext.data.local.entity.TaskContextEntity
 
 @Database(
     entities = [
@@ -46,9 +48,10 @@ import ru.agent.features.rag.data.local.entity.IndexMetadataEntity
         TaskExecutionEntity::class,
         DocumentChunkEntity::class,
         EmbeddingEntity::class,
-        IndexMetadataEntity::class
+        IndexMetadataEntity::class,
+        TaskContextEntity::class
     ],
-    version = 10
+    version = 12
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -66,6 +69,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun getDocumentChunkDao(): DocumentChunkDao
     abstract fun getEmbeddingDao(): EmbeddingDao
     abstract fun getIndexMetadataDao(): IndexMetadataDao
+    abstract fun getTaskContextDao(): TaskContextDao
 }
 
 // The Room compiler generates the `actual` implementations.

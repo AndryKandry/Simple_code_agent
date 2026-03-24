@@ -11,6 +11,7 @@ import com.github.ajalt.mordant.terminal.Terminal
 import ru.agent.cli.commands.ChatCommand
 import ru.agent.cli.commands.McpCommand
 import ru.agent.cli.commands.MemoryCommand
+import ru.agent.cli.commands.MiniChatCommand
 import ru.agent.cli.commands.ProfileCommand
 import ru.agent.cli.commands.ShellCommand
 import ru.agent.cli.commands.TaskCommand
@@ -82,7 +83,8 @@ class CliApp : CliktCommand(
                 InvariantCommand(),
                 McpCommand(),
                 SchedulerCommand(),
-                IndexCommand()
+                IndexCommand(),
+                MiniChatCommand()
             )
         }
     }

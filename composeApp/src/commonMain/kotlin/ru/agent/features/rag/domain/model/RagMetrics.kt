@@ -27,7 +27,7 @@ data class RagMetrics(
     val rerankMetrics: RerankMetrics? = null,
     val totalDurationMs: Long,
     val resultCount: Int,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long
 ) {
     /**
      * Returns a summary string for logging.

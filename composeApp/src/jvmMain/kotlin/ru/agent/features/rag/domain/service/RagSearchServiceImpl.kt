@@ -1,6 +1,7 @@
 package ru.agent.features.rag.domain.service
 
 import co.touchlab.kermit.Logger
+import ru.agent.core.time.currentTimeMillis
 import ru.agent.features.rag.data.remote.OllamaEmbeddingClient
 import ru.agent.features.rag.domain.formatter.RagResponseFormatter
 import ru.agent.features.rag.domain.model.*
@@ -232,7 +233,8 @@ class RagSearchServiceImpl(
                 filterMetrics = filterMetrics,
                 rerankMetrics = rerankMetrics,
                 totalDurationMs = totalDuration,
-                resultCount = results.size
+                resultCount = results.size,
+                timestamp = currentTimeMillis()
             )
 
             metricsService.recordMetrics(metrics)

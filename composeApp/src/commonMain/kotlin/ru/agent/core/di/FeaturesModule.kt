@@ -9,6 +9,7 @@ import ru.agent.features.profile.di.featureProfileModule
 import ru.agent.features.rag.di.featureRagModule
 import ru.agent.features.scheduler.di.featureSchedulerModule
 import ru.agent.features.task.di.featureTaskModule
+import ru.agent.features.taskcontext.di.featureTaskContextModule
 
 val featuresModule = module {
     includes(
@@ -37,6 +38,9 @@ val featuresModule = module {
 
         // RAG (Retrieval Augmented Generation)
         featureRagModule,
+
+        // Task Context (Mini-Chat with RAG + Task Memory)
+        featureTaskContextModule,
 
         // Note: mcpModule is defined in jvmMain and should be loaded separately for CLI applications
         // It's not included here because it depends on JVM-specific components

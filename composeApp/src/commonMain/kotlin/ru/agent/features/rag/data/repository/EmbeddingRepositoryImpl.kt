@@ -2,6 +2,7 @@ package ru.agent.features.rag.data.repository
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import ru.agent.core.time.currentTimeMillis
 import ru.agent.features.rag.data.local.dao.EmbeddingDao
 import ru.agent.features.rag.data.local.entity.EmbeddingEntity
 import ru.agent.features.rag.data.remote.OllamaApi
@@ -23,7 +24,7 @@ class EmbeddingRepositoryImpl(
      * Generates unique ID for embedding entity.
      */
     private fun generateEmbeddingId(chunkId: String): String {
-        return "emb_${chunkId}_${System.currentTimeMillis()}"
+        return "emb_${chunkId}_${currentTimeMillis()}"
     }
 
     /**
@@ -48,7 +49,7 @@ class EmbeddingRepositoryImpl(
             embeddingJson = embedding.toJsonString(),
             dimension = embedding.dimension,
             model = OllamaApi.DEFAULT_MODEL,
-            createdAt = System.currentTimeMillis()
+            createdAt = currentTimeMillis()
         )
         dao.insert(entity)
     }

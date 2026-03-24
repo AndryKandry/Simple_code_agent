@@ -245,7 +245,8 @@ data class MemoryContext(
         }
 
         val relevanceInfo = ragResponse?.let { response ->
-            " (max similarity: ${"%.2f".format(response.maxSimilarity)})"
+            val maxSimPercent = (response.maxSimilarity * 100).toInt()
+            " (max similarity: $maxSimPercent%)"
         } ?: ""
 
         val header = "--- RELEVANT CODE CONTEXT (RAG)$relevanceInfo ---\nFound ${chunks.size} relevant code sections:\n"
@@ -258,8 +259,9 @@ data class MemoryContext(
                 ""
             }
 
+            val simPercent = (chunk.similarity * 100).toInt()
             buildString {
-                appendLine("[$rank] File: ${chunk.fileName} (similarity: ${"%.2f".format(chunk.similarity)})")
+                appendLine("[$rank] File: ${chunk.fileName} (similarity: $simPercent%)")
                 if (locationInfo.isNotEmpty()) {
                     appendLine(locationInfo)
                 }
