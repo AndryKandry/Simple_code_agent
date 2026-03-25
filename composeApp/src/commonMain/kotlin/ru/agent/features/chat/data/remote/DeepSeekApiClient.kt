@@ -18,8 +18,8 @@ import ru.agent.features.chat.data.remote.dto.ChatResponse
 class DeepSeekApiClient(
     private val httpClient: HttpClient,
     private val apiKey: String
-) {
-    suspend fun sendMessage(request: ChatRequest): ChatResponse {
+) : LlmApiClient {
+    override suspend fun sendMessage(request: ChatRequest): ChatResponse {
         return try {
             withTimeout(DeepSeekApi.TIMEOUT) {
                 val response = httpClient.post("${DeepSeekApi.BASE_URL}/chat/completions") {
@@ -45,6 +45,8 @@ class DeepSeekApiClient(
             )
         }
     }
+
+    override fun getProviderName(): String = "DeepSeek"
 }
 
 /**
@@ -53,7 +55,7 @@ class DeepSeekApiClient(
 class DeepSeekApiException(
     message: String,
     cause: Throwable? = null
-) : Exception(message, cause)
+) : LlmApiException(message, cause)
 
 /**
  * Exception thrown when DeepSeek API request times out
@@ -61,4 +63,4 @@ class DeepSeekApiException(
 class DeepSeekApiTimeoutException(
     message: String,
     cause: Throwable? = null
-) : Exception(message, cause)
+) : LlmApiTimeoutException(message, cause)

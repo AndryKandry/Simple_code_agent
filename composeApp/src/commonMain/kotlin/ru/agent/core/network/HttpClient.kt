@@ -10,6 +10,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import ru.agent.features.chat.data.remote.DeepSeekApi
+import ru.agent.features.chat.data.remote.OllamaApi
 
 fun createHttpClient(): HttpClient {
     return HttpClient {
@@ -31,11 +32,13 @@ fun createHttpClient(): HttpClient {
         }
 
         // Configure timeout for all requests
-        // DeepSeek API can take a long time to generate responses
+        // Support both DeepSeek API and Ollama (local LLM can take longer)
         install(HttpTimeout) {
-            requestTimeoutMillis = DeepSeekApi.TIMEOUT
+            // Use the maximum timeout between DeepSeek and Ollama
+            // Ollama can take much longer for local inference
+            requestTimeoutMillis = maxOf(DeepSeekApi.TIMEOUT, OllamaApi.TIMEOUT)
             connectTimeoutMillis = 30_000 // 30 seconds to establish connection
-            socketTimeoutMillis = DeepSeekApi.TIMEOUT
+            socketTimeoutMillis = maxOf(DeepSeekApi.TIMEOUT, OllamaApi.TIMEOUT)
         }
     }
 }

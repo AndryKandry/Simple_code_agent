@@ -9,6 +9,10 @@ import ru.agent.core.database.AppDatabase
 import ru.agent.features.chat.data.local.dao.ChatSessionDao
 import ru.agent.features.chat.data.local.dao.MessageDao
 import ru.agent.features.chat.data.remote.DeepSeekApiClient
+import ru.agent.features.chat.data.remote.LlmApiClient
+import ru.agent.features.chat.data.remote.LlmClientFactory
+import ru.agent.features.chat.data.remote.LlmConfiguration
+import ru.agent.features.chat.data.remote.OllamaApiClient
 import ru.agent.features.chat.data.repository.ChatSessionRepositoryImpl
 import ru.agent.features.chat.domain.optimization.ContextOptimizer
 import ru.agent.features.chat.domain.repository.ChatSessionRepository
@@ -34,13 +38,37 @@ val featureChatModule = module {
     single<ChatSessionDao> { get<AppDatabase>().getChatSessionDao() }
     single<MessageDao> { get<AppDatabase>().getMessageDao() }
 
-    // API Client
+    // LLM Configuration
+    single { LlmConfiguration.fromEnvironment() }
+
+    // LLM API Clients
     single {
         DeepSeekApiClient(
             httpClient = get(),
             apiKey = get<String>(qualifier = named("deepseek_api_key"))
         )
     }
+
+    single {
+        val config = get<LlmConfiguration>()
+        OllamaApiClient(
+            httpClient = get(),
+            baseUrl = config.ollamaBaseUrl,
+            model = config.ollamaModel
+        )
+    }
+
+    // LLM Client Factory
+    single {
+        LlmClientFactory(
+            deepSeekClient = get(),
+            ollamaClient = get(),
+            config = get()
+        )
+    }
+
+    // Main LLM Client (based on configuration)
+    single<LlmApiClient> { get<LlmClientFactory>().createClient() }
 
     // Token Optimization
     single { ContextOptimizer(maxTokens = 4000, keepRecentMessages = 4) }

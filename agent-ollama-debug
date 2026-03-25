@@ -1,0 +1,18 @@
+#!/bin/bash
+# Simple Code Agent CLI with Ollama support (DEBUG mode)
+# Shows detailed logs for troubleshooting
+
+MODEL="${OLLAMA_MODEL:-deepseek-r1:1.5b}"
+
+export LLM_PROVIDER=ollama
+export OLLAMA_BASE_URL=http://localhost:11434
+export OLLAMA_MODEL="$MODEL"
+
+# Enable debug logs
+export AGENT_DEBUG=true
+
+echo "Starting Simple Code Agent with Ollama model: $MODEL (DEBUG mode)"
+echo "Press Ctrl+C to exit"
+echo ""
+
+./gradlew :composeApp:runCli --console=plain

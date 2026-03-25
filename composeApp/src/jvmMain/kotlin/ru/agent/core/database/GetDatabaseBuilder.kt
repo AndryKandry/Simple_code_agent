@@ -10,4 +10,5 @@ fun getDatabaseBuilder(): RoomDatabase.Builder<AppDatabase> {
         name = dbFile.absolutePath
     )
         .addMigrations(*ALL_MIGRATIONS.toTypedArray())
+        .fallbackToDestructiveMigration(dropAllTables = true)
 }

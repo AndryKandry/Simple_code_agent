@@ -37,7 +37,15 @@ data class ChatRequest(
      * - "none": model must NOT call any tools
      */
     @SerialName("tool_choice")
-    val toolChoice: String? = null
+    val toolChoice: String? = null,
+    /**
+     * Whether to stream responses.
+     * - false: return complete response (default, compatible with DeepSeek)
+     * - true: stream responses (used by some Ollama endpoints)
+     */
+    @EncodeDefault
+    @SerialName("stream")
+    val stream: Boolean = false
 ) {
     companion object {
         /**

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Simple Code Agent CLI with Ollama support
+# Usage: ./agent-ollama
+# Set model via: OLLAMA_MODEL environment variable
+
+MODEL="${OLLAMA_MODEL:-deepseek-r1:1.5b}"
+
+export LLM_PROVIDER=ollama
+export OLLAMA_BASE_URL=http://localhost:11434
+export OLLAMA_MODEL="$MODEL"
+
+# Reduce log noise (only errors)
+export AGENT_LOG_LEVEL=Error
+
+echo "Starting Simple Code Agent with Ollama model: $MODEL"
+echo "Press Ctrl+C to exit"
+echo ""
+
+./gradlew :composeApp:runCli --console=plain --quiet

@@ -13,7 +13,7 @@ import ru.agent.core.di.initKoin
  * - AGENT_LOG_LEVEL: Set severity level (Error, Warn, Info, Debug, Verbose)
  * - AGENT_DEBUG: Set to "true" for debug mode (equivalent to AGENT_LOG_LEVEL=Debug)
  *
- * Default level is Warn for production, Info if AGENT_DEBUG=true.
+ * Default level is Error for production (reduced noise), Info if AGENT_DEBUG=true.
  */
 fun main(args: Array<String>) {
     // Configure Kermit logger for CLI
@@ -47,7 +47,7 @@ fun main(args: Array<String>) {
  * Priority:
  * 1. AGENT_LOG_LEVEL - explicit level (Error, Warn, Info, Debug, Verbose)
  * 2. AGENT_DEBUG=true - debug mode (equivalent to AGENT_LOG_LEVEL=Debug)
- * 3. Default - Warn (production mode)
+ * 3. Default - Error (production mode, minimal noise)
  *
  * @return Configured severity level
  */
@@ -62,8 +62,8 @@ private fun getConfiguredLogLevel(): Severity {
             "DEBUG" -> Severity.Debug
             "VERBOSE", "TRACE" -> Severity.Verbose
             else -> {
-                System.err.println("Unknown AGENT_LOG_LEVEL: $explicitLevel, using Warn")
-                Severity.Warn
+                System.err.println("Unknown AGENT_LOG_LEVEL: $explicitLevel, using Error")
+                Severity.Error
             }
         }
     }
@@ -74,6 +74,6 @@ private fun getConfiguredLogLevel(): Severity {
         return Severity.Debug
     }
 
-    // Default: Warn for production
-    return Severity.Warn
+    // Default: Error for production (minimal noise)
+    return Severity.Error
 }

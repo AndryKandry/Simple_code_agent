@@ -17,7 +17,7 @@ import ru.agent.features.chat.data.local.dao.MessageDao
 import ru.agent.features.chat.data.local.entity.ChatSessionEntity
 import ru.agent.features.chat.data.local.mapper.MessageMapper.toDomain
 import ru.agent.features.chat.data.local.mapper.MessageMapper.toEntity
-import ru.agent.features.chat.data.remote.DeepSeekApiClient
+import ru.agent.features.chat.data.remote.LlmApiClient
 import ru.agent.features.chat.data.remote.dto.ChatRequest
 import ru.agent.features.chat.data.remote.dto.MessageDto
 import ru.agent.features.chat.data.remote.dto.ToolDefinitionDto
@@ -42,11 +42,11 @@ import kotlin.uuid.Uuid
 /**
  * Implementation of ChatRepository using Room database for persistent storage.
  *
- * Uses DeepSeek API for AI responses and stores all messages in local database.
+ * Uses LLM API (DeepSeek or Ollama) for AI responses and stores all messages in local database.
  * Includes context optimization to manage token limits.
  * Supports function calling (tools) via MCP integration.
  *
- * @property deepSeekApiClient API client for DeepSeek
+ * @property llmApiClient API client for LLM (DeepSeek or Ollama)
  * @property networkErrorHandling Handler for network errors
  * @property messageDao DAO for message persistence
  * @property chatSessionDao DAO for chat session persistence
@@ -60,7 +60,7 @@ import kotlin.uuid.Uuid
  * @property toolLoopHistorySize Size of history for loop detection (default: 10)
  */
 class ChatRepositoryImpl(
-    private val deepSeekApiClient: DeepSeekApiClient,
+    private val llmApiClient: LlmApiClient,
     private val networkErrorHandling: NetworkErrorHandling,
     private val messageDao: MessageDao,
     private val chatSessionDao: ChatSessionDao,
@@ -468,7 +468,7 @@ class ChatRepositoryImpl(
 
                 // Step 4-6: Prepare messages with tools
                 val currentMessages = prepareMessages(sessionId, includeTools = true)
-                logger.i { "Sending request to DeepSeek API with ${currentMessages.size} messages" }
+                logger.i { "Sending request to ${llmApiClient.getProviderName()} with ${currentMessages.size} messages" }
 
                 // Detect if user is asking for file operations
                 val isFileRequest = isFileOperationRequest(message)
@@ -476,7 +476,7 @@ class ChatRepositoryImpl(
                     logger.i { "Detected file operation request, will require tool usage" }
                 }
 
-                // Step 7: Call DeepSeek API with tools
+                // Step 7: Call LLM API with tools
                 var iteration = 0
                 var finalResponse: ru.agent.features.chat.data.remote.dto.ChatResponse? = null
                 var finalContent: String? = null
@@ -518,7 +518,7 @@ class ChatRepositoryImpl(
                         if (tools.isEmpty()) {
                             logger.w { "No tools available, falling back to simple request" }
                             val requestSimple = ChatRequest.simple(messages = currentMessages)
-                            deepSeekApiClient.sendMessage(requestSimple)
+                            llmApiClient.sendMessage(requestSimple)
                         } else if (shouldForceToolUse) {
                             // Force tool usage for file operations
                             logger.i { "Forcing tool usage with tool_choice=required" }
@@ -526,13 +526,13 @@ class ChatRepositoryImpl(
                                 messages = currentMessages,
                                 tools = tools
                             )
-                            deepSeekApiClient.sendMessage(requestWithRequiredTools)
+                            llmApiClient.sendMessage(requestWithRequiredTools)
                         } else {
                             val requestWithTools = ChatRequest.withTools(
                                 messages = currentMessages,
                                 tools = tools
                             )
-                            deepSeekApiClient.sendMessage(requestWithTools)
+                            llmApiClient.sendMessage(requestWithTools)
                         }
                     } catch (e: Exception) {
                         logger.e(throwable = e) { "Error during API request: ${e.message}" }
@@ -542,7 +542,7 @@ class ChatRepositoryImpl(
                             message = e.message ?: "API request failed"
                         )
                     }
-                    logger.i { "Received response from DeepSeek API. ID: ${response.id}, choices: ${response.choices.size}, iteration: $iteration" }
+                    logger.i { "Received response from ${llmApiClient.getProviderName()}. ID: ${response.id}, choices: ${response.choices.size}, iteration: $iteration" }
 
                     // Validate response
                     if (response.choices.isEmpty()) {
@@ -550,7 +550,7 @@ class ChatRepositoryImpl(
                         messageDao.deleteMessageById(userMessage.id)
                         return@withContext ResultWrapper.Error(
                             throwable = IllegalStateException("Empty response from API"),
-                            message = "Received empty response from DeepSeek API"
+                            message = "Received empty response from LLM API"
                         )
                     }
 
@@ -769,7 +769,7 @@ class ChatRepositoryImpl(
                     message = e.message ?: "Invariant violation"
                 )
             } catch (e: Exception) {
-                logger.e(throwable = e) { "Error sending message to DeepSeek API" }
+                logger.e(throwable = e) { "Error sending message to ${llmApiClient.getProviderName()}" }
                 networkErrorHandling.transformToResultWrapper(e)
             }
         }
@@ -807,7 +807,7 @@ class ChatRepositoryImpl(
                 // Prepare messages with or without tools based on parameter
                 val currentMessages = prepareMessages(sessionId, additionalMessage = message, includeTools = includeTools).toMutableList()
 
-                logger.i { "Sending silent request to DeepSeek API with ${currentMessages.size} messages" }
+                logger.i { "Sending silent request to ${llmApiClient.getProviderName()} with ${currentMessages.size} messages" }
 
                 // Tool call loop handling (similar to sendMessage but without DB persistence)
                 var iteration = 0
@@ -830,22 +830,22 @@ class ChatRepositoryImpl(
                         }
 
                         if (tools.isEmpty()) {
-                            deepSeekApiClient.sendMessage(ChatRequest.simple(messages = currentMessages))
+                            llmApiClient.sendMessage(ChatRequest.simple(messages = currentMessages))
                         } else {
-                            deepSeekApiClient.sendMessage(ChatRequest.withTools(
+                            llmApiClient.sendMessage(ChatRequest.withTools(
                                 messages = currentMessages,
                                 tools = tools
                             ))
                         }
                     } else {
-                        deepSeekApiClient.sendMessage(ChatRequest(messages = currentMessages))
+                        llmApiClient.sendMessage(ChatRequest(messages = currentMessages))
                     }
 
                     if (response.choices.isEmpty()) {
                         logger.e { "Empty response from API" }
                         return@withContext ResultWrapper.Error(
                             throwable = IllegalStateException("Empty response from API"),
-                            message = "Received empty response from DeepSeek API"
+                            message = "Received empty response from LLM API"
                         )
                     }
 
@@ -941,7 +941,7 @@ class ChatRepositoryImpl(
                 ResultWrapper.Success(finalContent)
 
             } catch (e: Exception) {
-                logger.e(throwable = e) { "Error in silent message to DeepSeek API" }
+                logger.e(throwable = e) { "Error in silent message to ${llmApiClient.getProviderName()}" }
                 networkErrorHandling.transformToResultWrapper(e)
             }
         }

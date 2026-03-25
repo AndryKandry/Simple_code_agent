@@ -2,6 +2,7 @@ package ru.agent.features.chat.di
 
 import org.koin.dsl.module
 import ru.agent.features.chat.data.repository.ChatRepositoryImpl
+import ru.agent.features.chat.data.remote.LlmApiClient
 import ru.agent.features.chat.domain.repository.ChatRepository
 import ru.agent.features.chat.domain.tools.ToolExecutor
 import ru.agent.features.chat.tools.ToolExecutorImpl
@@ -26,7 +27,7 @@ val featureChatJvmModule = module {
     // ChatRepository implementation with McpOrchestrator for parallel tool execution
     single<ChatRepository> {
         ChatRepositoryImpl(
-            deepSeekApiClient = get(),
+            llmApiClient = get<LlmApiClient>(),
             networkErrorHandling = get(),
             messageDao = get(),
             chatSessionDao = get(),
