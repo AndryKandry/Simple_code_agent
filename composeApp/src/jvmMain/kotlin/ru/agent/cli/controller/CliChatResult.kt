@@ -1,6 +1,7 @@
 package ru.agent.cli.controller
 
 import ru.agent.features.invariant.domain.service.ValidationWarning
+import ru.agent.features.rag.domain.model.ChunkScore
 import ru.agent.features.task.domain.model.TaskState
 import ru.agent.features.task.domain.validator.TransitionViolation
 
@@ -71,5 +72,39 @@ sealed class CliChatResult {
     data class WithWarnings(
         val baseResult: CliChatResult,
         val warnings: List<ValidationWarning>
+    ) : CliChatResult()
+
+    /**
+     * Compare mode result - shows both RAG and non-RAG responses.
+     */
+    data class CompareResult(
+        val responseWithoutRag: String,
+        val responseWithRag: String,
+        val ragMetrics: RagMetrics?,
+        val warnings: List<ValidationWarning> = emptyList()
+    ) : CliChatResult()
+
+    /**
+     * RAG comparison metrics.
+     */
+    data class RagMetrics(
+        val chunksFound: Int,
+        val averageSimilarity: Double,
+        val topChunkFile: String?,
+        val topChunkSimilarity: Double?,
+        val durationMs: Long
+    )
+
+    /**
+     * RAG mode comparison result - compares BASELINE vs ENHANCED RAG modes.
+     */
+    data class RagModeCompareResult(
+        val baselineDuration: Long,
+        val enhancedDuration: Long,
+        val baselineResults: List<ChunkScore>,
+        val enhancedResults: List<ChunkScore>,
+        val baselineAvgScore: Float,
+        val enhancedAvgScore: Float,
+        val warnings: List<ValidationWarning> = emptyList()
     ) : CliChatResult()
 }

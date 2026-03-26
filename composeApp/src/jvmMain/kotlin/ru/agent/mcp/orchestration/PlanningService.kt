@@ -219,7 +219,7 @@ class PlanningService(
      */
     private suspend fun callPlanningApi(prompt: String): Result<String> {
         return try {
-            withTimeout(60_000L) {  // 60 seconds timeout
+            withTimeout(PLANNING_TIMEOUT_MS) {  // 2 minutes timeout
                 val request = PlanningApiRequest(
                     model = "deepseek-chat",
                     messages = listOf(
@@ -255,7 +255,7 @@ class PlanningService(
             }
         } catch (e: TimeoutCancellationException) {
             logger.w { "Planning API timeout" }
-            Result.failure(Exception("Planning API timeout after 60 seconds"))
+            Result.failure(Exception("Planning API timeout after ${PLANNING_TIMEOUT_MS / 1000} seconds"))
         } catch (e: Exception) {
             logger.e(e) { "Error calling planning API" }
             Result.failure(e)
@@ -311,6 +311,8 @@ class PlanningService(
     }
 
     companion object {
+        private const val PLANNING_TIMEOUT_MS = 120_000L  // 2 minutes
+
         private val CODE_BLOCK_REGEX = Regex("```(json)?\\s*\\n?([\\s\\S]*?)\\n?```")
         private val JSON_OBJECT_REGEX = Regex("\\{[\\s\\S]*\\}")
 

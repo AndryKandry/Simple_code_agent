@@ -2,6 +2,7 @@ package ru.agent.cli.di
 
 import org.koin.dsl.module
 import ru.agent.cli.controller.CliChatController
+import ru.agent.cli.controller.MiniChatController
 import ru.agent.cli.visualization.CliAnimator
 import ru.agent.cli.visualization.ProgressTracker
 import ru.agent.features.chat.di.featureChatJvmModule
@@ -10,7 +11,10 @@ import ru.agent.features.chat.domain.usecase.SaveMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendMessageUseCase
 import ru.agent.features.chat.domain.usecase.SendSilentMessageUseCase
 import ru.agent.features.memory.domain.usecase.AddMessageToMemoryUseCase
+import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 import ru.agent.features.memory.domain.usecase.UpdateWorkingMemoryUseCase
+import ru.agent.features.rag.di.featureRagJvmModule
+import ru.agent.features.rag.domain.service.RagSearchService
 import ru.agent.features.task.domain.usecase.CancelTaskUseCase
 import ru.agent.features.task.domain.usecase.CreateTaskFromMessageUseCase
 import ru.agent.features.task.domain.usecase.GenerateTaskPlanUseCase
@@ -20,6 +24,9 @@ import ru.agent.features.task.domain.usecase.ResumeTaskUseCase
 import ru.agent.features.task.domain.usecase.TransitionTaskStageUseCase
 import ru.agent.features.task.domain.usecase.UpdateTaskStateUseCase
 import ru.agent.features.task.domain.usecase.ValidateTaskResultUseCase
+import ru.agent.features.taskcontext.domain.usecase.GetEnrichedPromptUseCase
+import ru.agent.features.taskcontext.domain.usecase.InitializeTaskContextUseCase
+import ru.agent.features.taskcontext.domain.usecase.UpdateTaskContextFromMessageUseCase
 import ru.agent.mcp.di.mcpModule
 import ru.agent.mcp.orchestration.di.orchestrationModule
 
@@ -34,10 +41,11 @@ import ru.agent.mcp.orchestration.di.orchestrationModule
  * - CLI animator for spinners and animations
  * - MCP infrastructure (Filesystem, Terminal, Client)
  * - Tool executor for function calling
+ * - RAG JVM-specific components (Ollama, Chunkers, IndexingPipeline)
  */
 val cliModule = module {
-    // Include MCP module, Chat JVM module (for ToolExecutor), and Orchestration module
-    includes(mcpModule, featureChatJvmModule, orchestrationModule)
+    // Include MCP module, Chat JVM module (for ToolExecutor), Orchestration module, and RAG JVM module
+    includes(mcpModule, featureChatJvmModule, orchestrationModule, featureRagJvmModule)
 
     // Progress Tracker - singleton for tracking progress across operations
     single<ProgressTracker> { ProgressTracker() }
@@ -65,7 +73,21 @@ val cliModule = module {
             updateWorkingMemoryUseCase = get<UpdateWorkingMemoryUseCase>(),
             validationService = get(),
             progressTracker = get<ProgressTracker>(),
-            cliAnimator = get<CliAnimator>()
+            cliAnimator = get<CliAnimator>(),
+            getMemoryContextUseCase = get<GetMemoryContextUseCase>(),
+            ragSearchService = get<RagSearchService>()
+        )
+    }
+
+    // Mini-Chat Controller - singleton
+    single<MiniChatController> {
+        MiniChatController(
+            initializeTaskContextUseCase = get<InitializeTaskContextUseCase>(),
+            updateTaskContextFromMessageUseCase = get<UpdateTaskContextFromMessageUseCase>(),
+            getEnrichedPromptUseCase = get<GetEnrichedPromptUseCase>(),
+            sendMessageUseCase = get<SendMessageUseCase>(),
+            addMessageToMemoryUseCase = get<AddMessageToMemoryUseCase>(),
+            ragSearchService = get<RagSearchService>()
         )
     }
 }

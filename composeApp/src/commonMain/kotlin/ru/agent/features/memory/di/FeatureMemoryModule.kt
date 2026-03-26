@@ -21,6 +21,7 @@ import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
 import ru.agent.features.memory.domain.usecase.SaveToLongTermMemoryUseCase
 import ru.agent.features.memory.domain.usecase.SearchKnowledgeBaseUseCase
 import ru.agent.features.memory.domain.usecase.UpdateWorkingMemoryUseCase
+import ru.agent.features.rag.domain.service.RagSearchService
 
 val featureMemoryModule = module {
 
@@ -49,7 +50,8 @@ val featureMemoryModule = module {
             shortTermMemoryRepository = get(),
             workingMemoryRepository = get(),
             longTermMemoryRepository = get(),
-            invariantRepository = get()
+            invariantRepository = get(),
+            ragSearchService = get()
         )
     }
 

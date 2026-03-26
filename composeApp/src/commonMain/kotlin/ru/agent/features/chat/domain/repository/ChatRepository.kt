@@ -9,8 +9,25 @@ interface ChatRepository {
     /**
      * Send a message in the specified session.
      * Saves the message and response to chat history.
+     *
+     * @param sessionId ID of the chat session
+     * @param message Message content to send
+     * @param ragEnabled Enable RAG (Retrieval-Augmented Generation) for context enrichment (default: true)
+     * @param searchQuery Optional search query for RAG (defaults to message if not provided)
+     * @param includeTools Whether to enable MCP tool execution (default: true)
+     * @param skipInvariantValidation Skip invariant validation (for mini-chat, default: false)
+     * @param skipMarkdownFormatting Skip appending markdown sources/citations to content (for mini-chat, default: false)
+     * @return ResultWrapper containing the response Message or an error
      */
-    suspend fun sendMessage(sessionId: String, message: String): ResultWrapper<Message>
+    suspend fun sendMessage(
+        sessionId: String,
+        message: String,
+        ragEnabled: Boolean = true,
+        searchQuery: String? = null,
+        includeTools: Boolean = true,
+        skipInvariantValidation: Boolean = false,
+        skipMarkdownFormatting: Boolean = false
+    ): ResultWrapper<Message>
 
     /**
      * Send a message to LLM with optional tool support.

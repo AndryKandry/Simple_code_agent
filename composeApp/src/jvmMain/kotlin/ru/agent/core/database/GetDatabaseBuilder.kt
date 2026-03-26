@@ -10,5 +10,6 @@ fun getDatabaseBuilder(): RoomDatabase.Builder<AppDatabase> {
         name = dbFile.absolutePath
     )
         .addMigrations(*ALL_MIGRATIONS.toTypedArray())
+        // Для development: пересоздать БД если схема не совпадает
         .fallbackToDestructiveMigration(dropAllTables = true)
 }

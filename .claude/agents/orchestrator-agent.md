@@ -41,6 +41,7 @@ color: yellow
 | `koin-di-agent` | Dependency Injection | Настройка DI модулей |
 | `code-reviewer-agent` | Code Review | Проверка качества кода |
 | `qa-expert-agent` | QA тестирование | Функциональное тестирование CLI |
+| `chat-rag-memory-agent` | Mini-Chat с RAG + Task Memory | Реализация диалоговых систем с контекстом |
 
 ## Полный цикл разработки CLI feature
 

@@ -159,9 +159,10 @@ class McpOrchestratorImpl(
             }
 
             // Log if any expected tools weren't found in the API response
+            // This is normal - the planner may suggest tools that the main LLM doesn't call
             val missingTools = batch.map { it.toolName } - batchApiToolCalls.map { it.function.name }.toSet()
             if (missingTools.isNotEmpty()) {
-                logger.w { "Tools in plan but not in API response: $missingTools" }
+                logger.d { "Planner suggested tools not used by LLM: $missingTools (this is normal)" }
             }
 
             logger.d { "Executing batch ${batchIndex + 1}/${batches.size} with ${batchApiToolCalls.size} tools" }

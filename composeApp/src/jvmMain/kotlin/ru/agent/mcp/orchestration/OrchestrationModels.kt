@@ -26,6 +26,9 @@ enum class RequestType {
     /** Uses multiple servers - complex workflow spanning filesystem, terminal, scheduler */
     MULTI_TYPE,
 
+    /** RAG queries - questions about codebase, architecture, documentation - uses semantic code search */
+    RAG_REQUEST,
+
     /** Unable to classify - may need all tools */
     UNKNOWN
 }

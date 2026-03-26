@@ -32,6 +32,9 @@ import ru.agent.features.invariant.domain.model.CheckType
 import ru.agent.features.invariant.domain.service.ValidationService
 import ru.agent.features.invariant.domain.usecase.ValidateInvariantViolationUseCase
 import ru.agent.features.memory.domain.usecase.GetMemoryContextUseCase
+import ru.agent.features.rag.domain.formatter.RagResponseFormatter
+import ru.agent.features.rag.domain.model.RagConfig
+import ru.agent.features.rag.domain.model.RagResponse
 import ru.agent.mcp.orchestration.ExecutionPlan
 import ru.agent.mcp.orchestration.McpOrchestrator
 import ru.agent.mcp.orchestration.OrchestrationContext
@@ -104,15 +107,33 @@ class ChatRepositoryImpl(
     }
 
     /**
+     * Validate tool call ID and log error if invalid.
+     * @return true if valid, false otherwise
+     */
+    private fun isValidToolCallId(
+        toolCallId: String,
+        validToolCallIds: Set<String>,
+        context: String = ""
+    ): Boolean {
+        if (toolCallId !in validToolCallIds) {
+            logger.e { "[$context] Invalid tool call ID: $toolCallId. Not found in assistant message tool_calls." }
+            return false
+        }
+        return true
+    }
+
+    /**
      * Build tool instructions system prompt dynamically based on available tools.
      *
      * @param workingDirectory Current working directory (FULL ABSOLUTE PATH)
      * @param tools List of available tools
+     * @param hasRagContext Whether RAG context is available for this request
      * @return Formatted system prompt with tool instructions
      */
     private suspend fun buildToolInstructions(
         workingDirectory: String,
-        tools: List<ToolDefinitionDto>
+        tools: List<ToolDefinitionDto>,
+        hasRagContext: Boolean = false
     ): String {
         val projectName = getWorkingDirectoryName(workingDirectory)
 
@@ -133,6 +154,53 @@ class ChatRepositoryImpl(
 
         // Check if scheduler tools are available
         val hasSchedulerTools = tools.any { it.function.name.startsWith("scheduler_") }
+
+        // Build RAG section if context is available
+        val ragSection = if (hasRagContext) {
+            """
+
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║              RAG CONTEXT - RETRIEVAL-AUGMENTED GENERATION                    ║
+            ╠══════════════════════════════════════════════════════════════════════════════╣
+            ║ YOU HAVE RAG CONTEXT in "RELEVANT CODE CONTEXT" section below.               ║
+            ║ This contains ACTUAL code snippets from the codebase matching your query.    ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
+
+            ╔══════════════════════════════════════════════════════════════════════════════╗
+            ║  MANDATORY RAG USAGE RULES - NO EXCEPTIONS                                   ║
+            ╠══════════════════════════════════════════════════════════════════════════════╣
+            ║ 1. USE file paths EXACTLY as shown in RAG context (they are REAL paths)      ║
+            ║ 2. DO NOT fabricate, guess, or hallucinate ANY file paths                    ║
+            ║ 3. DO NOT invent files that are not in RAG context or tool results           ║
+            ║ 4. When referencing code, use paths from RAG context verbatim                ║
+            ║ 5. If RAG doesn't have the info, say so - don't make things up              ║
+            ╚══════════════════════════════════════════════════════════════════════════════╝
+
+            RAG CONTEXT STRUCTURE:
+            Each snippet shows:
+            - Source: EXACT file path (use this path verbatim)
+            - Lines: Line numbers in the file
+            - Similarity: How relevant (0.0-1.0, higher = more relevant)
+            - Content: Actual code from that file
+
+            HOW TO RESPOND:
+            ✓ CORRECT: "According to RequestClassifier.kt (lines 45-67)..."
+            ✗ WRONG: "In src/utils/classifier.ts..." (if not in RAG context)
+            ✗ WRONG: Making up file paths that weren't in RAG results
+
+            WHEN RAG CONTEXT IS INSUFFICIENT:
+            - Say "Based on the indexed codebase, I found..."
+            - Use filesystem tools to explore further if needed
+            - Never fabricate information not present in RAG or tool results
+
+            WHEN RAG CONTEXT IS SUFFICIENT:
+            - Answer DIRECTLY using RAG context - DO NOT call tools
+            - Tools are ONLY for when RAG doesn't have the information
+            - If RAG shows the answer, respond immediately without tool calls
+            """
+        } else {
+            ""
+        }
 
         return """
             You are an AI assistant in CLI (Command Line Interface) mode.
@@ -156,9 +224,10 @@ class ChatRepositoryImpl(
             ║ DO NOT guess, estimate, or fabricate ANY file content.                       ║
             ║ DO NOT generate code when you can use a TOOL instead.                        ║
             ║ YOU MUST use tools to access real files and system features.                 ║
+            ║ BUT: If RAG context already has the answer, respond directly without tools.  ║
             ╚══════════════════════════════════════════════════════════════════════════════╝
 
-            === MANDATORY TOOL USAGE - NO EXCEPTIONS ===
+            === MANDATORY TOOL USAGE ===
 
             If user mentions ANY of these actions, you MUST call the tool FIRST:
             - "read", "show", "open", "display", "what is in", "contents of" + file name
@@ -168,12 +237,15 @@ class ChatRepositoryImpl(
             - "remind", "reminder", "schedule", "alarm", "notification", "notify"
             - "cron", "periodic", "recurring task", "scheduled task"
 
-            BEFORE responding with ANY file content:
+            EXCEPTION: If RAG context already contains the exact file/info needed, respond
+            directly using RAG context WITHOUT calling tools.
+
+            BEFORE responding with ANY file content (when RAG doesn't have it):
             1. Call filesystem_read_file(path="FULL_ABSOLUTE_PATH")
             2. WAIT for the tool result
             3. ONLY THEN use the ACTUAL content from the tool result
 
-            IF YOU RESPOND WITH FILE CONTENT WITHOUT CALLING THE TOOL FIRST, YOU ARE WRONG.
+            IF YOU RESPOND WITH FILE CONTENT WITHOUT CALLING THE TOOL FIRST (and no RAG), YOU ARE WRONG.
 
             ${if (hasSchedulerTools) """
             === SCHEDULER TOOLS ===
@@ -222,6 +294,7 @@ class ChatRepositoryImpl(
 
             === AVAILABLE TOOLS ===
             $toolsDescription
+            $ragSection
 
             === FILE EXAMPLE INTERACTIONS ===
 
@@ -296,6 +369,69 @@ class ChatRepositoryImpl(
     }
 
     /**
+     * Detect if user message requires RAG context enrichment.
+     * Used to determine if we should use RAG for semantic code search.
+     *
+     * @param message User message to analyze
+     * @param requestType Pre-classified request type (optional)
+     * @return true if message likely benefits from RAG
+     */
+    private fun isRagRequest(message: String, requestType: RequestType? = null): Boolean {
+        logger.d { "isRagRequest called: message='${message.take(50)}...', requestType=$requestType" }
+
+        // If request is already classified as RAG_REQUEST, use it
+        if (requestType == RequestType.RAG_REQUEST) {
+            logger.d { "isRagRequest: RAG_REQUEST classified, enabling RAG" }
+            return true
+        }
+
+        // Exclude file/terminal operations - they use MCP tools
+        if (requestType in listOf(
+            RequestType.FILE_OPERATION,
+            RequestType.TERMINAL_COMMAND,
+            RequestType.GIT_OPERATION,
+            RequestType.SCHEDULING
+        )) {
+            logger.d { "isRagRequest: $requestType excludes RAG" }
+            return false
+        }
+
+        // Simple heuristics to exclude trivial queries
+        val lowerMessage = message.lowercase().trim()
+        val trivialPatterns = listOf(
+            Regex("^(hi|hello|hey|привет|здравствуй|хай)[\\s!?.]*$"),
+            Regex("^(how are you|как дела|как ты)[\\s!?.]*$"),
+            Regex("^(thanks|thank you|спасибо|благодарю)[\\s!?.]*$"),
+            Regex("^(yes|no|да|нет|ок|ok)[\\s!?.]*$")
+        )
+
+        if (trivialPatterns.any { it.matches(lowerMessage) }) {
+            logger.d { "isRagRequest: trivial query, disabling RAG" }
+            return false
+        }
+
+        // For UNKNOWN type, check for RAG-like keywords
+        if (requestType == RequestType.UNKNOWN || requestType == null) {
+            val ragKeywords = listOf(
+                "where", "где", "how", "как", "architecture", "архитектура",
+                "implementation", "реализация", "class", "класс", "function", "функция",
+                "explain", "объясни", "find all", "найди все", "usage", "использование",
+                "code", "код", "project", "проект", "system", "система",
+                "source", "источник", "model", "модель", "service", "сервис",
+                "repository", "usecase", "chunk", "rag", "embedding"
+            )
+            val hasRagKeywords = ragKeywords.any { lowerMessage.contains(it) }
+            logger.d { "isRagRequest: UNKNOWN type, ragKeywords=$hasRagKeywords, lowerMessage='$lowerMessage'" }
+            return hasRagKeywords
+        }
+
+        // Default: use RAG for CODE_ANALYSIS and MULTI_TYPE
+        val result = requestType in listOf(RequestType.CODE_ANALYSIS, RequestType.MULTI_TYPE)
+        logger.d { "isRagRequest: $requestType, result=$result" }
+        return result
+    }
+
+    /**
      * Validate message order for API compatibility.
      * Every message with role="tool" must have a preceding assistant message with tool_calls.
      * Removes orphaned tool messages that would cause API errors.
@@ -338,21 +474,54 @@ class ChatRepositoryImpl(
     }
 
     /**
+     * Result of message preparation with RAG context.
+     *
+     * @property messages Prepared messages for API
+     * @property ragChunks RAG chunks that were used for context (empty if RAG disabled or no results)
+     * @property isDontKnowMode True if max similarity is below relevance threshold (should return "don't know" response)
+     * @property ragResponse Structured RAG response with sources and citations (null if RAG disabled)
+     */
+    private data class PreparedMessagesResult(
+        val messages: MutableList<MessageDto>,
+        val ragChunks: List<ru.agent.features.rag.domain.model.ChunkScore>,
+        val isDontKnowMode: Boolean = false,
+        val ragResponse: ru.agent.features.rag.domain.model.RagResponse? = null
+    )
+
+    /**
      * Prepare messages for API request with system prompt and context.
      *
      * @param sessionId Session ID for context
      * @param additionalMessage Optional additional message to add
      * @param includeTools Whether to include tool instructions in system prompt
-     * @return List of prepared messages
+     * @param ragEnabled Enable RAG for context enrichment
+     * @param searchQuery Optional search query for RAG (defaults to message if not provided)
+     * @param requestType Pre-classified request type for intelligent RAG usage
+     * @return PreparedMessagesResult with messages and RAG chunks
      */
     private suspend fun prepareMessages(
         sessionId: String,
         additionalMessage: String? = null,
-        includeTools: Boolean = false
-    ): MutableList<MessageDto> {
+        includeTools: Boolean = false,
+        ragEnabled: Boolean = true,
+        searchQuery: String? = null,
+        requestType: RequestType? = null
+    ): PreparedMessagesResult {
+        // Determine if RAG should be used based on classification
+        val shouldUseRag = ragEnabled && when {
+            additionalMessage == null -> false // No message - no RAG
+            else -> isRagRequest(additionalMessage, requestType)
+        }
+
         val optimizedContext = getOptimizedContext(sessionId)
-        val memoryContext = getMemoryContextUseCase(sessionId)
+        val memoryContext = getMemoryContextUseCase(
+            sessionId = sessionId,
+            searchQuery = if (shouldUseRag) searchQuery ?: additionalMessage else null,
+            ragEnabled = shouldUseRag
+        )
         val systemPrompt = memoryContext.toSystemPrompt()
+        val hasRagContext = memoryContext.relevantChunks.isNotEmpty()
+        logger.d { "RAG context: hasRagContext=$hasRagContext, chunks=${memoryContext.relevantChunks.size}" }
 
         val messages = mutableListOf<MessageDto>()
 
@@ -365,7 +534,7 @@ class ChatRepositoryImpl(
             if (includeTools) {
                 val workingDirectory = getWorkingDirectory()
                 val tools = toolExecutor.getToolsForApi()
-                append(buildToolInstructions(workingDirectory, tools))
+                append(buildToolInstructions(workingDirectory, tools, hasRagContext))
             }
         }
 
@@ -392,9 +561,35 @@ class ChatRepositoryImpl(
             messages.add(MessageDto(role = "user", content = it))
         }
 
+        logger.i {
+            "Prepared messages: ${messages.size} total, RAG=$shouldUseRag, " +
+            "chunks=${memoryContext.relevantChunks.size}"
+        }
+
         // Validate message order - remove orphaned tool messages
         // This is a safety net since DB doesn't store tool_calls info
-        return validateMessageOrder(messages).toMutableList()
+        val validatedMessages = validateMessageOrder(messages).toMutableList()
+
+        // Use RagResponse from MemoryContext (already created by GetMemoryContextUseCase)
+        val ragResponse = memoryContext.ragResponse
+
+        // Check "don't know" mode using RagResponse.hasRelevantContext directly
+        // This is consistent with how RagResponse was created in GetMemoryContextUseCase
+        // The relevance check is already embedded in RagResponse.fromChunks()
+        val isDontKnowMode = shouldUseRag && ragResponse?.shouldRespondWithDontKnow() == true
+
+        if (isDontKnowMode) {
+            val maxSimilarity = ragResponse?.maxSimilarity ?: 0f
+            logger.w { "RAG 'don't know' mode activated: maxSimilarity=$maxSimilarity, hasRelevantContext=false" }
+        }
+
+        // Return both messages and RAG chunks for sources
+        return PreparedMessagesResult(
+            messages = validatedMessages,
+            ragChunks = memoryContext.relevantChunks,
+            isDontKnowMode = isDontKnowMode,
+            ragResponse = ragResponse
+        )
     }
 
     /**
@@ -422,8 +617,16 @@ class ChatRepositoryImpl(
     }
 
     @OptIn(ExperimentalUuidApi::class)
-    override suspend fun sendMessage(sessionId: String, message: String): ResultWrapper<Message> {
-        logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..." }
+    override suspend fun sendMessage(
+        sessionId: String,
+        message: String,
+        ragEnabled: Boolean,
+        searchQuery: String?,
+        includeTools: Boolean,
+        skipInvariantValidation: Boolean,
+        skipMarkdownFormatting: Boolean
+    ): ResultWrapper<Message> {
+        logger.i { "sendMessage called for session: $sessionId, message: ${message.take(50)}..., ragEnabled: $ragEnabled, skipInvariantValidation: $skipInvariantValidation" }
 
         return withContext(Dispatchers.IO) {
             try {
@@ -431,25 +634,36 @@ class ChatRepositoryImpl(
                 ensureSessionExists(sessionId)
 
                 // === Validate user request against invariants ===
-                val requestValidation = validateInvariantViolationUseCase(
-                    text = message,
-                    checkType = CheckType.USER_REQUEST
-                )
-
-                if (requestValidation.shouldBlock) {
-                    logger.w { "User request blocked by invariant: ${requestValidation.blockMessage}" }
-                    return@withContext ResultWrapper.Error(
-                        throwable = InvariantViolationException(
-                            message = requestValidation.blockMessage ?: "Invariant violation",
-                            violations = requestValidation.violations
-                        ),
-                        message = requestValidation.blockMessage ?: "Запрос заблокирован из-за нарушения правил проекта"
+                if (!skipInvariantValidation) {
+                    val requestValidation = validateInvariantViolationUseCase(
+                        text = message,
+                        checkType = CheckType.USER_REQUEST
                     )
+
+                    if (requestValidation.shouldBlock) {
+                        logger.w { "User request blocked by invariant: ${requestValidation.blockMessage}" }
+                        return@withContext ResultWrapper.Error(
+                            throwable = InvariantViolationException(
+                                message = requestValidation.blockMessage ?: "Invariant violation",
+                                violations = requestValidation.violations
+                            ),
+                            message = requestValidation.blockMessage ?: "Запрос заблокирован из-за нарушения правил проекта"
+                        )
+                    }
+
+                    if (requestValidation.hasViolations) {
+                        logger.w { "User request has warnings: ${requestValidation.violations.size}" }
+                    }
                 }
 
-                if (requestValidation.hasViolations) {
-                    logger.w { "User request has warnings: ${requestValidation.violations.size}" }
-                }
+                // Classify request type for intelligent RAG usage
+                val classifier = ru.agent.mcp.orchestration.RequestClassifier()
+                val requestType = classifier.classify(message)
+                logger.i { "Request classified as: $requestType" }
+
+                // Determine if RAG should be used based on classification
+                val shouldUseRag = ragEnabled && isRagRequest(message, requestType)
+                logger.i { "RAG decision: enabled=$ragEnabled, shouldUse=$shouldUseRag, type=$requestType" }
 
                 // Step 1: Create user message with UUID
                 val userMessage = Message(
@@ -466,13 +680,70 @@ class ChatRepositoryImpl(
                 // Step 3: Increment message count in session
                 chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
 
-                // Step 4-6: Prepare messages with tools
-                val currentMessages = prepareMessages(sessionId, includeTools = true)
-                logger.i { "Sending request to ${llmApiClient.getProviderName()} with ${currentMessages.size} messages" }
+                // Step 4-6: Prepare messages with tools and RAG
+                val prepareResult = prepareMessages(
+                    sessionId = sessionId,
+                    additionalMessage = message,  // <-- FIX: Pass message for RAG
+                    includeTools = includeTools,
+                    ragEnabled = shouldUseRag,
+                    searchQuery = searchQuery ?: message,
+                    requestType = requestType
+                )
+                val currentMessages = prepareResult.messages
+                val ragChunks = prepareResult.ragChunks
+                val isDontKnowMode = prepareResult.isDontKnowMode
+                val ragResponse = prepareResult.ragResponse
+                logger.d { "RAG chunks after prepareMessages: ${ragChunks.size}, isDontKnowMode=$isDontKnowMode" }
+
+                // === Handle "don't know" mode - return response WITHOUT calling LLM ===
+                if (isDontKnowMode && ragResponse != null) {
+                    logger.i { "RAG 'don't know' mode: skipping LLM call, returning predefined response" }
+
+                    // Safe access to ragResponse.answer with fallback to default "don't know" message
+                    val dontKnowContent = ragResponse.answer.ifBlank {
+                        RagResponse.dontKnow("").answer
+                    }
+
+                    // Create and save assistant message with "don't know" response
+                    val assistantMessage = Message(
+                        id = Uuid.random().toString(),
+                        content = dontKnowContent,
+                        senderType = SenderType.ASSISTANT,
+                        timestamp = currentTimeMillis(),
+                        sources = null // No sources for "don't know" mode
+                    )
+
+                    messageDao.insertMessage(assistantMessage.toEntity(sessionId))
+                    chatSessionDao.incrementMessageCount(sessionId, currentTimeMillis())
+
+                    // Update session title if this was first exchange
+                    val messageCount = messageDao.getMessageCount(sessionId)
+                    if (messageCount == 2) {
+                        val newTitle = generateTitleFromMessage(message)
+                        val session = chatSessionDao.getSessionById(sessionId)
+                        if (session != null && session.title == "New Chat") {
+                            chatSessionDao.updateSession(
+                                session.copy(
+                                    title = newTitle,
+                                    updatedAt = currentTimeMillis()
+                                )
+                            )
+                            logger.i { "Session title updated to: $newTitle" }
+                        }
+                    }
+
+                    logger.i { "sendMessage completed in 'don't know' mode for session: $sessionId" }
+                    return@withContext ResultWrapper.Success(assistantMessage)
+                }
+
+                logger.i {
+                    "Sending request to ${llmApiClient.getProviderName()} with ${currentMessages.size} messages " +
+                    "(RAG=$shouldUseRag, type=$requestType)"
+                }
 
                 // Detect if user is asking for file operations
                 val isFileRequest = isFileOperationRequest(message)
-                if (isFileRequest) {
+                if (isFileRequest && includeTools) {
                     logger.i { "Detected file operation request, will require tool usage" }
                 }
 
@@ -481,25 +752,52 @@ class ChatRepositoryImpl(
                 var finalResponse: ru.agent.features.chat.data.remote.dto.ChatResponse? = null
                 var finalContent: String? = null
 
-                // Enhanced loop detection: track recent tool call signatures
-                val toolCallHistory = mutableSetOf<String>()
-                val toolCallOrder = mutableListOf<String>()
+                // If tools are disabled, send simple request without tool loop
+                if (!includeTools) {
+                    logger.i { "Tools disabled, sending simple request (RAG=$shouldUseRag)" }
+                    val simpleResponse = try {
+                        deepSeekApiClient.sendMessage(ChatRequest.simple(messages = currentMessages))
+                    } catch (e: Exception) {
+                        logger.e(throwable = e) { "Error during simple API request: ${e.message}" }
+                        messageDao.deleteMessageById(userMessage.id)
+                        return@withContext ResultWrapper.Error(
+                            throwable = e,
+                            message = e.message ?: "API request failed"
+                        )
+                    }
 
-                // Track if model skipped tool on file request
-                var toolSkippedOnFileRequest = false
+                    if (simpleResponse.choices.isEmpty()) {
+                        logger.e { "Empty response from API" }
+                        messageDao.deleteMessageById(userMessage.id)
+                        return@withContext ResultWrapper.Error(
+                            throwable = IllegalStateException("Empty response from API"),
+                            message = "Received empty response from DeepSeek API"
+                        )
+                    }
 
-                logger.i { "Fetching tools for API request..." }
+                    finalResponse = simpleResponse
+                    finalContent = simpleResponse.choices.firstOrNull()?.message?.content
+                } else {
+                    // Tools enabled - use tool call loop
+                    // Enhanced loop detection: track recent tool call signatures
+                    val toolCallHistory = mutableSetOf<String>()
+                    val toolCallOrder = mutableListOf<String>()
 
-                while (iteration < maxToolIterations) {
-                    iteration++
+                    // Track if model skipped tool on file request
+                    var toolSkippedOnFileRequest = false
 
-                    // Prepare request - ALWAYS with tools
-                    // Use tool_choice="required" for file operations on first iteration
-                    val response = try {
-                        val tools = toolExecutor.getToolsForApi()
-                        val shouldForceToolUse = isFileRequest && iteration == 1
+                    logger.i { "Fetching tools for API request..." }
 
-                        logger.i { "Sending request WITH ${tools.size} tools (iteration: $iteration, forceTool: $shouldForceToolUse)" }
+                    while (iteration < maxToolIterations) {
+                        iteration++
+
+                        // Prepare request - ALWAYS with tools
+                        // Use tool_choice="required" for file operations on first iteration
+                        val response = try {
+                            val tools = toolExecutor.getToolsForApi()
+                            val shouldForceToolUse = isFileRequest && iteration == 1
+
+                            logger.i { "Sending request WITH ${tools.size} tools (iteration: $iteration, forceTool: $shouldForceToolUse)" }
 
                         // CRITICAL: Validate and fix message order before sending to API
                         // This removes orphaned tool messages that would cause API errors
@@ -591,12 +889,16 @@ class ChatRepositoryImpl(
                     // Check if response has tool calls
                     if (response.hasToolCalls()) {
                         // Execute all tool calls
-                        val toolCalls = response.getAllToolCalls()
+                        // IMPORTANT: Use only first choice for consistency with assistantContent
+                        val firstChoice = response.choices.firstOrNull()
+                        val toolCalls = firstChoice?.message?.toolCalls ?: emptyList()
                         logger.i { "Response contains ${toolCalls.size} tool calls: ${toolCalls.map { "${it.function.name}(${it.id})" }}" }
 
                         // Enhanced loop detection: check for patterns in history
+                        // CRITICAL FIX: Use full argument string instead of hashCode() to prevent hash collisions
+                        // Hash collisions can cause false positives where different tool calls are incorrectly identified as loops
                         val currentToolSignature = toolCalls.joinToString(";") {
-                            "${it.function.name}:${it.function.arguments.hashCode()}"
+                            "${it.function.name}:${it.function.arguments}"
                         }
 
                         // Check for immediate repetition - add warning BEFORE assistant message
@@ -621,16 +923,20 @@ class ChatRepositoryImpl(
 
                         // Add assistant message with tool calls to history
                         // IMPORTANT: This must come AFTER any system messages and BEFORE tool results
-                        // CRITICAL FIX: Create assistant message with ALL tool calls from response,
-                        // not just from first choice. API may return tool_calls in different choices.
-                        val assistantContent = response.choices.firstOrNull()?.message?.content
+                        // Use assistantContent from first choice (same choice as toolCalls)
+                        val assistantContent = firstChoice?.message?.content
                         val assistantMessage = MessageDto(
                             role = "assistant",
                             content = assistantContent,
-                            toolCalls = toolCalls  // Use toolCalls from getAllToolCalls() - ensures consistency
+                            toolCalls = toolCalls  // Use toolCalls from first choice - ensures consistency
                         )
                         logger.d { "Adding assistant message with tool_calls: ${assistantMessage.toolCalls?.size ?: 0} calls" }
                         currentMessages.add(assistantMessage)
+
+                        // Collect valid tool call IDs for verification
+                        // Only accept tool results that reference these IDs
+                        val validToolCallIds = toolCalls.map { it.id }.toSet()
+                        logger.d { "Valid tool call IDs: ${validToolCallIds.joinToString()}" }
 
                         // Update history with LRU eviction
                         toolCallHistory.add(currentToolSignature)
@@ -641,8 +947,8 @@ class ChatRepositoryImpl(
                         }
 
                         // === Orchestrated Tool Execution with Parallelism ===
-                        // Classify request type for orchestration
-                        val requestType = when {
+                        // Use orchestration-specific request type (not the RAG classification)
+                        val orchestrationRequestType = when {
                             isFileRequest -> RequestType.FILE_OPERATION
                             else -> RequestType.UNKNOWN
                         }
@@ -663,6 +969,11 @@ class ChatRepositoryImpl(
                         // Execute with dependencies (parallel where possible)
                         orchestrator.executeWithDependencies(toolCalls, plan)
                             .collect { result ->
+                                // Verify that tool call ID exists in assistant message
+                                if (!isValidToolCallId(result.toolCallId, validToolCallIds, "sendMessage")) {
+                                    return@collect
+                                }
+
                                 val toolResultContent = result.result ?: result.error ?: "No result"
                                 logger.i { "Tool ${result.toolName} (id=${result.toolCallId}) result (first 200 chars): ${toolResultContent.take(200)}" }
 
@@ -686,9 +997,10 @@ class ChatRepositoryImpl(
                     finalResponse = response
                     finalContent = response.choices.firstOrNull()?.message?.content
                     break
-                }
+                    }
+                } // end of else block (tools enabled)
 
-                // Check if we exceeded max iterations
+                // Check if we exceeded max iterations (only relevant when tools are enabled)
                 if (finalContent == null && iteration >= maxToolIterations) {
                     logger.w { "Max tool iterations reached ($maxToolIterations)" }
                     finalContent = "Превышено максимальное количество вызовов инструментов ($maxToolIterations). " +
@@ -707,35 +1019,70 @@ class ChatRepositoryImpl(
                     )
                 }
 
-                val responseValidation = validateInvariantViolationUseCase(
-                    text = aiResponse,
-                    checkType = CheckType.AI_RESPONSE
-                )
-
-                if (responseValidation.shouldBlock) {
-                    logger.w { "AI response blocked by invariant: ${responseValidation.blockMessage}" }
-                    messageDao.deleteMessageById(userMessage.id)
-
-                    val blockedMessage = Message(
-                        id = Uuid.random().toString(),
-                        content = "Сгенерированный ответ нарушает инвариант проекта:\n\n${responseValidation.blockMessage}\n\nПожалуйста, уточните запрос.",
-                        senderType = SenderType.SYSTEM,
-                        timestamp = currentTimeMillis()
+                // === Validate AI response against invariants ===
+                if (!skipInvariantValidation) {
+                    val responseValidation = validateInvariantViolationUseCase(
+                        text = aiResponse,
+                        checkType = CheckType.AI_RESPONSE
                     )
 
-                    return@withContext ResultWrapper.Success(blockedMessage)
+                    if (responseValidation.shouldBlock) {
+                        logger.w { "AI response blocked by invariant: ${responseValidation.blockMessage}" }
+                        messageDao.deleteMessageById(userMessage.id)
+
+                        val blockedMessage = Message(
+                            id = Uuid.random().toString(),
+                            content = "Сгенерированный ответ нарушает инвариант проекта:\n\n${responseValidation.blockMessage}\n\nПожалуйста, уточните запрос.",
+                            senderType = SenderType.SYSTEM,
+                            timestamp = currentTimeMillis()
+                        )
+
+                        return@withContext ResultWrapper.Success(blockedMessage)
+                    }
+
+                    if (responseValidation.hasViolations) {
+                        logger.w { "AI response has warnings: ${responseValidation.violations.size}" }
+                    }
                 }
 
-                if (responseValidation.hasViolations) {
-                    logger.w { "AI response has warnings: ${responseValidation.violations.size}" }
+                // Step 8: Format response with sources and citations
+                val messageSources = ragChunks.takeIf { it.isNotEmpty() }
+
+                val formattedContent = when {
+                    skipMarkdownFormatting -> {
+                        // For mini-chat: skip markdown formatting, sources are displayed separately
+                        logger.d { "Skipping markdown formatting for mini-chat" }
+                        aiResponse
+                    }
+                    !messageSources.isNullOrEmpty() -> {
+                        logger.d { "Formatting response with ${messageSources.size} sources and citations" }
+                        try {
+                            RagResponseFormatter.appendSourcesAndCitations(
+                                answer = aiResponse,
+                                chunks = messageSources,
+                                relevanceThreshold = RagConfig().relevanceThreshold,
+                                maxCitations = RagResponse.DEFAULT_MAX_CITATIONS
+                            )
+                        } catch (e: Exception) {
+                            logger.e(throwable = e) { "Error formatting RAG response with sources: ${e.message}" }
+                            // Fallback to raw AI response on formatting error
+                            aiResponse
+                        }
+                    }
+                    else -> {
+                        logger.d { "No RAG sources, using raw AI response" }
+                        aiResponse
+                    }
                 }
 
-                // Step 8: Create and save assistant message
+                logger.d { "Creating assistant message with sources: ${messageSources?.size ?: 0} chunks" }
                 val assistantMessage = Message(
                     id = finalResponse?.id ?: Uuid.random().toString(),
-                    content = aiResponse,
+                    content = formattedContent,
                     senderType = SenderType.ASSISTANT,
-                    timestamp = currentTimeMillis()
+                    timestamp = currentTimeMillis(),
+                    // Include RAG sources if available
+                    sources = messageSources
                 )
 
                 messageDao.insertMessage(assistantMessage.toEntity(sessionId))
@@ -805,9 +1152,16 @@ class ChatRepositoryImpl(
                 }
 
                 // Prepare messages with or without tools based on parameter
-                val currentMessages = prepareMessages(sessionId, additionalMessage = message, includeTools = includeTools).toMutableList()
+                val prepareResult = prepareMessages(sessionId, additionalMessage = message, includeTools = includeTools)
+                val currentMessages = prepareResult.messages
 
                 logger.i { "Sending silent request to ${llmApiClient.getProviderName()} with ${currentMessages.size} messages" }
+
+                // Detect if user is asking for file operations
+                val isFileRequest = isFileOperationRequest(message)
+                if (isFileRequest && includeTools) {
+                    logger.i { "Silent: Detected file operation request, will require tool usage" }
+                }
 
                 // Tool call loop handling (similar to sendMessage but without DB persistence)
                 var iteration = 0
@@ -819,7 +1173,8 @@ class ChatRepositoryImpl(
                     // Build request with or without tools
                     val response = if (includeTools) {
                         val tools = toolExecutor.getToolsForApi()
-                        logger.i { "Silent request WITH ${tools.size} tools (iteration: $iteration)" }
+                        val shouldForceToolUse = isFileRequest && iteration == 1
+                        logger.i { "Silent request WITH ${tools.size} tools (iteration: $iteration, forceTool: $shouldForceToolUse)" }
 
                         // CRITICAL: Validate and fix message order before sending to API
                         val validatedMessages = validateMessageOrder(currentMessages)
@@ -830,7 +1185,15 @@ class ChatRepositoryImpl(
                         }
 
                         if (tools.isEmpty()) {
+                            logger.w { "Silent: No tools available, falling back to simple request" }
                             llmApiClient.sendMessage(ChatRequest.simple(messages = currentMessages))
+                        } else if (shouldForceToolUse) {
+                            // Force tool usage for file operations
+                            logger.i { "Silent: Forcing tool usage with tool_choice=required" }
+                            llmApiClient.sendMessage(ChatRequest.withRequiredTools(
+                                messages = currentMessages,
+                                tools = tools
+                            ))
                         } else {
                             llmApiClient.sendMessage(ChatRequest.withTools(
                                 messages = currentMessages,
@@ -855,19 +1218,25 @@ class ChatRepositoryImpl(
 
                     // Check if response has tool calls (process BEFORE checking finish_reason)
                     if (response.hasToolCalls()) {
-                        val toolCalls = response.getAllToolCalls()
+                        // IMPORTANT: Use only first choice for consistency with assistantContent
+                        val firstChoice = response.choices.firstOrNull()
+                        val toolCalls = firstChoice?.message?.toolCalls ?: emptyList()
                         logger.i { "Silent response contains ${toolCalls.size} tool calls: ${toolCalls.map { "${it.function.name}(${it.id})" }}" }
 
                         // Add assistant message with tool calls to current messages
-                        // CRITICAL FIX: Create assistant message with ALL tool calls from response
-                        val assistantContent = response.choices.firstOrNull()?.message?.content
+                        // Use assistantContent from first choice (same choice as toolCalls)
+                        val assistantContent = firstChoice?.message?.content
                         val assistantMessage = MessageDto(
                             role = "assistant",
                             content = assistantContent,
-                            toolCalls = toolCalls  // Use toolCalls from getAllToolCalls() - ensures consistency
+                            toolCalls = toolCalls  // Use toolCalls from first choice - ensures consistency
                         )
                         logger.d { "Adding assistant message with tool_calls: ${assistantMessage.toolCalls?.size ?: 0} calls" }
                         currentMessages.add(assistantMessage)
+
+                        // Collect valid tool call IDs for verification
+                        val validToolCallIds = toolCalls.map { it.id }.toSet()
+                        logger.d { "Silent: Valid tool call IDs: ${validToolCallIds.joinToString()}" }
 
                         // Create orchestration context
                         val orchestrationContext = OrchestrationContext(
@@ -885,6 +1254,11 @@ class ChatRepositoryImpl(
                         // Execute with dependencies
                         orchestrator.executeWithDependencies(toolCalls, plan)
                             .collect { result ->
+                                // Verify that tool call ID exists in assistant message
+                                if (!isValidToolCallId(result.toolCallId, validToolCallIds, "sendSilentMessage")) {
+                                    return@collect
+                                }
+
                                 val toolResultContent = result.result ?: result.error ?: "No result"
                                 logger.i { "Tool ${result.toolName} (id=${result.toolCallId}) result (first 200 chars): ${toolResultContent.take(200)}" }
 

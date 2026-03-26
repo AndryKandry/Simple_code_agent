@@ -410,6 +410,12 @@ class ReplController {
                 // This case should not occur (handled above), but safe fallback
                 handleChatResult(result.baseResult)
             }
+            is CliChatResult.CompareResult -> {
+                // Compare result already output via callback
+            }
+            is CliChatResult.RagModeCompareResult -> {
+                // RAG mode compare result already output via callback
+            }
         }
     }
 

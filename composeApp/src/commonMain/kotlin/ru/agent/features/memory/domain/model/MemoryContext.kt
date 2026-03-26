@@ -2,6 +2,8 @@ package ru.agent.features.memory.domain.model
 
 import ru.agent.features.chat.domain.model.Message
 import ru.agent.features.invariant.domain.model.Invariant
+import ru.agent.features.rag.domain.model.ChunkScore
+import ru.agent.features.rag.domain.model.RagResponse
 
 /**
  * Memory Context - агрегированный контекст памяти.
@@ -15,6 +17,7 @@ import ru.agent.features.invariant.domain.model.Invariant
  * @property relevantKnowledge Релевантные записи из базы знаний
  * @property activeAnchors Активные контекстные якоря
  * @property activeInvariants Активные инварианты проекта
+ * @property relevantChunks Релевантные чанки из RAG индекса
  */
 data class MemoryContext(
     val shortTermMemory: ShortTermMemory = ShortTermMemory(),
@@ -22,7 +25,9 @@ data class MemoryContext(
     val userProfile: UserProfile? = null,
     val relevantKnowledge: List<KnowledgeEntry> = emptyList(),
     val activeAnchors: List<ContextAnchor> = emptyList(),
-    val activeInvariants: List<Invariant> = emptyList()
+    val activeInvariants: List<Invariant> = emptyList(),
+    val relevantChunks: List<ChunkScore> = emptyList(),
+    val ragResponse: RagResponse? = null
 ) {
 
     /**
@@ -34,7 +39,9 @@ data class MemoryContext(
                 userProfile == null &&
                 relevantKnowledge.isEmpty() &&
                 activeAnchors.isEmpty() &&
-                activeInvariants.isEmpty()
+                activeInvariants.isEmpty() &&
+                relevantChunks.isEmpty() &&
+                ragResponse == null
     }
 
     /**
@@ -51,6 +58,14 @@ data class MemoryContext(
         // Контекстные якоря
         if (activeAnchors.isNotEmpty()) {
             parts.add(buildAnchorsSection())
+        }
+
+        // RAG контекст (code snippets from indexed files)
+        // Use ragResponse if available for better context info, fallback to relevantChunks
+        if (ragResponse != null && ragResponse.hasRelevantContext) {
+            parts.add(buildRagSection())
+        } else if (relevantChunks.isNotEmpty()) {
+            parts.add(buildRagSection())
         }
 
         // База знаний
@@ -201,6 +216,68 @@ data class MemoryContext(
             |3. If a requested change violates a MEDIUM priority rule, INFORM the user but proceed if they confirm.
             |4. ALWAYS explain which invariant is being violated and why it matters.
         """.trimMargin()
+    }
+
+    private fun buildRagSection(): String {
+        // Prefer ragResponse if available, fallback to relevantChunks
+        val chunks = if (ragResponse != null && ragResponse.hasRelevantContext) {
+            ragResponse.sources.map { source ->
+                // Convert SourceInfo to ChunkScore-like format for display
+                ChunkScore(
+                    chunkId = source.chunkId,
+                    content = source.content,
+                    source = source.filePath,
+                    fileName = source.fileName,
+                    similarity = source.similarity,
+                    rank = source.rank,
+                    startLine = source.startLine,
+                    endLine = source.endLine,
+                    language = source.language,
+                    section = source.section
+                )
+            }
+        } else {
+            relevantChunks
+        }
+
+        if (chunks.isEmpty()) {
+            return ""
+        }
+
+        val relevanceInfo = ragResponse?.let { response ->
+            val maxSimPercent = (response.maxSimilarity * 100).toInt()
+            " (max similarity: $maxSimPercent%)"
+        } ?: ""
+
+        val header = "--- RELEVANT CODE CONTEXT (RAG)$relevanceInfo ---\nFound ${chunks.size} relevant code sections:\n"
+
+        val chunksInfo = chunks.mapIndexed { index, chunk ->
+            val rank = index + 1
+            val locationInfo = if (chunk.startLine > 0 && chunk.endLine > 0) {
+                "Lines: ${chunk.startLine}-${chunk.endLine}"
+            } else {
+                ""
+            }
+
+            val simPercent = (chunk.similarity * 100).toInt()
+            buildString {
+                appendLine("[$rank] File: ${chunk.fileName} (similarity: $simPercent%)")
+                if (locationInfo.isNotEmpty()) {
+                    appendLine(locationInfo)
+                }
+                appendLine("```")
+                appendLine(chunk.content)
+                append("```")
+            }
+        }
+
+        val footer = "--- END RAG CONTEXT ---"
+
+        return buildString {
+            appendLine(header)
+            appendLine(chunksInfo.joinToString("\n"))
+            append(footer)
+        }
     }
 }
 
