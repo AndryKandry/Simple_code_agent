@@ -756,7 +756,7 @@ class ChatRepositoryImpl(
                 if (!includeTools) {
                     logger.i { "Tools disabled, sending simple request (RAG=$shouldUseRag)" }
                     val simpleResponse = try {
-                        deepSeekApiClient.sendMessage(ChatRequest.simple(messages = currentMessages))
+                        llmApiClient.sendMessage(ChatRequest.simple(messages = currentMessages))
                     } catch (e: Exception) {
                         logger.e(throwable = e) { "Error during simple API request: ${e.message}" }
                         messageDao.deleteMessageById(userMessage.id)

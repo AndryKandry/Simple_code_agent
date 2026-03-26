@@ -466,10 +466,10 @@ class RagFunctionalTest {
 
         assertTrue(formatted.contains("TestFile.kt"), "Should contain file name")
         assertTrue(formatted.contains("10-20"), "Should contain line range")
-        // Note: Format uses locale-specific decimal separator (comma or dot)
+        // Format uses percentage (e.g., 85% instead of 0.85)
         assertTrue(
-            formatted.contains("0.85") || formatted.contains("0,85"),
-            "Should contain similarity score (formatted: $formatted)"
+            formatted.contains("85%"),
+            "Should contain similarity score as percentage (formatted: $formatted)"
         )
     }
 
